@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="app-token" content="__APP_TOKEN__" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'" />
+  <title>Torrent Bul</title>
+  <link rel="icon" href="icon.svg" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" id="home-link" aria-label="Ana sayfa">
+      <img src="icon.svg" alt="" width="30" height="30" />
+      <span>Torrent Bul</span>
+    </a>
+    <div class="topbar-actions">
+      <button class="ghost-btn" id="downloads-btn" type="button" aria-controls="drawer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        <span>İndirmeler</span>
+        <span class="badge" id="downloads-badge" hidden>0</span>
+      </button>
+      <button class="icon-btn" id="settings-btn" type="button" aria-label="Ayarlar" title="Ayarlar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main" class="is-home">
+    <section class="hero">
+      <h1 class="hero-title">Ne izlemek, dinlemek ya da okumak istersin?</h1>
+      <p class="hero-sub">Bir film adı, konu ya da tür yaz. Gerisini biz hallederiz.</p>
+
+      <form class="search" id="search-form" role="search" autocomplete="off">
+        <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" name="q" type="search" placeholder="Örn. Nosferatu, belgesel, Charlie Chaplin…" aria-label="Arama" />
+        <button class="primary-btn" type="submit" id="search-btn">Ara</button>
+      </form>
+
+      <div class="filters">
+        <div class="segmented" id="categories" role="tablist" aria-label="Kategori"></div>
+        <div class="chips" id="genres" aria-label="Türler"></div>
+      </div>
+    </section>
+
+    <section class="results-wrap" aria-live="polite">
+      <div class="results-head" id="results-head" hidden>
+        <p id="results-summary"></p>
+      </div>
+      <div class="notice" id="notice" hidden></div>
+      <ol class="results" id="results"></ol>
+    </section>
+
+    <p class="legal">Yalnızca indirme hakkına sahip olduğunuz içerikleri indirin. Varsayılan kaynak Internet Archive’dır; kamu malı ve özgür lisanslı içerik sunar.</p>
+  </main>
+
+  <aside class="drawer" id="drawer" aria-label="İndirmeler" aria-hidden="true">
+    <div class="drawer-head">
+      <h2>İndirmeler</h2>
+      <div class="drawer-head-actions">
+        <button class="ghost-btn small" id="open-dir-btn" type="button">Klasörü aç</button>
+        <button class="icon-btn" id="drawer-close" type="button" aria-label="Kapat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+    </div>
+    <ul class="downloads" id="downloads"></ul>
+    <div class="empty" id="downloads-empty">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+      <p>Henüz indirme yok.<br />Bir sonuçta <strong>İndir</strong>’e basman yeterli.</p>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim" hidden></div>
+
+  <dialog class="modal" id="settings">
+    <form method="dialog" id="settings-form">
+      <div class="modal-head">
+        <h2>Ayarlar</h2>
+        <button class="icon-btn" value="cancel" aria-label="Kapat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+
+      <label class="field">
+        <span>İndirme klasörü</span>
+        <input id="set-dir" type="text" spellcheck="false" />
+      </label>
+
+      <fieldset class="field">
+        <legend>Arama kaynakları</legend>
+        <label class="toggle">
+          <input type="checkbox" id="set-archive" />
+          <span class="toggle-ui" aria-hidden="true"></span>
+          <span><strong>Internet Archive</strong><small>Kamu malı film, müzik, kitap ve yazılımlar.</small></span>
+        </label>
+        <div id="torznab-list" class="torznab-list"></div>
+        <button class="ghost-btn small" type="button" id="add-torznab">+ Kendi indeksleyicini ekle (Jackett / Prowlarr)</button>
+        <p class="hint">Torznab adresi ve API anahtarı, kendi kurduğun Jackett ya da Prowlarr’dan alınır. Uygulama hiçbir siteyi kendiliğinden kullanmaz.</p>
+      </fieldset>
+
+      <div class="modal-foot">
+        <button class="ghost-btn" value="cancel">Vazgeç</button>
+        <button class="primary-btn" value="save" id="settings-save">Kaydet</button>
+      </div>
+    </form>
+  </dialog>
+
+  <template id="torznab-row">
+    <div class="torznab-row">
+      <input data-k="name" type="text" placeholder="Ad" aria-label="Kaynak adı" />
+      <input data-k="url" type="url" placeholder="http://localhost:9117/api/v2.0/indexers/all/results/torznab" aria-label="Torznab adresi" />
+      <input data-k="apiKey" type="password" placeholder="API anahtarı" aria-label="API anahtarı" />
+      <button class="icon-btn" type="button" data-remove aria-label="Kaynağı sil">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+  </template>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
