@@ -499,7 +499,12 @@ $('settings-btn').addEventListener('click', async () => {
   s.torznab.forEach(addTorznabRow);
   $('settings').showModal();
 });
-$('add-torznab').addEventListener('click', () => addTorznabRow());
+// Yerel Jackett'ın "tüm indeksleyiciler" adresi hazır gelir; kullanıcı yalnızca API anahtarını yapıştırır.
+const JACKETT_DEFAULT = { name: 'Jackett', url: 'http://127.0.0.1:9117/api/v2.0/indexers/all/results/torznab' };
+$('add-torznab').addEventListener('click', () => {
+  addTorznabRow($('torznab-list').children.length ? {} : JACKETT_DEFAULT);
+  $('torznab-list').lastElementChild.querySelector('[data-k="apiKey"]').focus();
+});
 
 $('settings').addEventListener('close', async () => {
   if ($('settings').returnValue !== 'save') return;
