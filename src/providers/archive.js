@@ -4,7 +4,7 @@
 import { CATEGORIES, genreTerms } from '../categories.js';
 
 const API = 'https://archive.org/advancedsearch.php';
-const FIELDS = ['identifier', 'title', 'item_size', 'downloads', 'language', 'year', 'mediatype', 'description'];
+const FIELDS = ['identifier', 'title', 'item_size', 'downloads', 'language', 'year', 'mediatype', 'description', 'subject', 'avg_rating', 'num_reviews'];
 const TR_LANGUAGE = 'language:(tur OR turkish OR "Türkçe" OR "Turkce")';
 
 function quote(term) {
@@ -17,8 +17,9 @@ export function buildQuery({ query = '', category = 'all', genre = '' }, turkish
   if (text) parts.push(`(${text})`);
   const terms = genreTerms(genre);
   if (terms.length) parts.push(`subject:(${terms.map(quote).join(' OR ')})`);
-  const types = (CATEGORIES[category] || CATEGORIES.all).archive;
-  parts.push(`mediatype:(${types.join(' OR ')})`);
+  const cat = CATEGORIES[category] || CATEGORIES.all;
+  if (cat.archiveSubjects) parts.push(`subject:(${cat.archiveSubjects.map(quote).join(' OR ')})`);
+  parts.push(`mediatype:(${cat.archive.join(' OR ')})`);
   if (turkishOnly) parts.push(TR_LANGUAGE);
   return parts.join(' AND ');
 }
@@ -41,6 +42,9 @@ export function mapDoc(doc, index, total) {
     size: Number(doc.item_size) || null,
     seeders: null,
     downloads: Number(doc.downloads) || 0,
+    subjects: [].concat(doc.subject || []).map(String).slice(0, 20),
+    // Internet Archive kullanıcı puanı 5 üzerindendir; 10'luk ölçeğe çevrilir.
+    rating: Number(doc.num_reviews) >= 2 && Number(doc.avg_rating) ? { value: Number(doc.avg_rating) * 2, source: 'Archive', votes: Number(doc.num_reviews) } : null,
     webSeed: true,
     torrentUrl: `https://archive.org/download/${encodeURIComponent(id)}/${encodeURIComponent(id)}_archive.torrent`,
     pageUrl: `https://archive.org/details/${encodeURIComponent(id)}`,

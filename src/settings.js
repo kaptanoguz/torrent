@@ -7,6 +7,7 @@ export const DEFAULTS = {
   // { id, name, url, apiKey, enabled }
   torznab: [],
   archiveEnabled: true,
+  omdbApiKey: '',
 };
 
 export function createSettingsStore(file) {
@@ -22,6 +23,7 @@ export function createSettingsStore(file) {
       const next = { ...data };
       if (typeof patch.downloadDir === 'string' && patch.downloadDir.trim()) next.downloadDir = patch.downloadDir.trim();
       if (typeof patch.archiveEnabled === 'boolean') next.archiveEnabled = patch.archiveEnabled;
+      if (typeof patch.omdbApiKey === 'string') next.omdbApiKey = patch.omdbApiKey.trim();
       if (Array.isArray(patch.torznab)) {
         next.torznab = patch.torznab
           .filter((t) => t && typeof t.url === 'string' && /^https?:\/\//i.test(t.url.trim()))

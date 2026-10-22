@@ -8,8 +8,11 @@ Torrent Bul; Windows, macOS ve Linux’ta çalışan sade bir masaüstü uygulam
 
 ## Neler yapar?
 
-- **Tek kutudan arama:** film adı, konu (“sessiz sinema”), ya da tür kısayolları (Korku, Komedi, Belgesel, Yeşilçam…).
-- **Türkçe içerik önce:** Türkçe olduğu anlaşılan sonuçlar (dil bilgisi, “Türkçe altyazılı”, “TR dublaj”, Türkçe karakterli başlıklar) listenin en üstüne çıkar. Diğer dillerdeki sonuçlar da altında listelenir.
+- **Tek kutudan arama:** film adı ya da konu yaz, yanındaki menüden kategori seç (Film, Dizi, Müzik, Kitap, Yazılım, +18). Ana sayfadaki **Türlere göz at** kartlarıyla tek tıkla türe göre keşfet.
+- **Sıralama ve süzme:** sonuçlar varsayılan olarak en yeni yıldan eskiye sıralanır. En eski, en yüksek puan, en popüler, türe göre ya da boyuta göre de sıralayabilir, **Tür** menüsüyle yalnızca istediğin türü gösterebilirsin. Seçimin hatırlanır.
+- **Puanlar:** Internet Archive kullanıcı puanı (10 üzerinden) gösterilir. Ayarlar’a ücretsiz bir [OMDb](https://www.omdbapi.com/apikey.aspx) anahtarı girersen film ve dizilerde IMDb puanı, tür ve afiş de görünür.
+- **+18 bölümü:** yetişkin içerik normal aramalarda gizlenir, yalnızca kategori menüsündeki **+18** bölümünde ve yaş onayından sonra görünür.
+- **Türkçe içerik önce:** (araç çubuğundan kapatılabilir) Türkçe olduğu anlaşılan sonuçlar (dil bilgisi, “Türkçe altyazılı”, “TR dublaj”, Türkçe karakterli başlıklar) listenin en üstüne çıkar. Diğer dillerdeki sonuçlar da altında listelenir.
 - **Tek tıkla indirme:** ilerleme, hız, kalan süre ve bağlantı sayısı canlı görünür. Duraklat, devam et, klasörde göster.
 - **Kaldığı yerden devam:** uygulamayı kapatıp açınca indirmeler sürer.
 - **Magnet bağlantısı:** arama kutusuna bir `magnet:` bağlantısı yapıştırırsan doğrudan indirir.

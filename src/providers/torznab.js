@@ -1,7 +1,7 @@
 // Torznab: Jackett / Prowlarr gibi kullanıcının kendi kurduğu indeksleyiciler.
 // Uygulama hiçbir siteyi gömülü getirmez; adresi ve API anahtarını kullanıcı girer.
 
-import { CATEGORIES, genreTerms } from '../categories.js';
+import { CATEGORIES, genreTerms, categoryFromTorznab } from '../categories.js';
 
 function decode(s) {
   return s
@@ -32,6 +32,7 @@ export function parseTorznab(xml, sourceName) {
     const link = tag(item, 'link') || (enclosure && decode(enclosure[1])) || '';
     const magnet = a.magneturl || (link.startsWith('magnet:') ? link : '');
     const size = Number(a.size || tag(item, 'size')) || null;
+    const torznabCategory = Number(a.category) || Number(tag(item, 'category')) || null;
     return {
       id: `torznab:${a.infohash || link || index}`,
       source: tag(item, 'jackettindexer') || sourceName,
@@ -39,6 +40,10 @@ export function parseTorznab(xml, sourceName) {
       description: '',
       year: Number(a.year) || null,
       language: a.language ? [a.language] : [],
+      category: categoryFromTorznab(torznabCategory),
+      torznabCategory,
+      subjects: a.genre ? a.genre.split(/,\s*/) : [],
+      imdbId: a.imdbid ? `tt${String(a.imdbid).replace(/^tt/, '').padStart(7, '0')}` : a.imdb ? `tt${String(a.imdb).replace(/^tt/, '').padStart(7, '0')}` : undefined,
       size,
       seeders: a.seeders != null ? Number(a.seeders) : null,
       peers: a.peers != null ? Number(a.peers) : null,

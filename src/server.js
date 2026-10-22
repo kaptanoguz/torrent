@@ -10,6 +10,7 @@ import { createDownloadManager } from './downloads.js';
 import { activeProviders, searchAll } from './search.js';
 import { CATEGORIES, GENRES } from './categories.js';
 
+const MASK = '••••••';
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -70,7 +71,11 @@ export async function startServer({
 
   const publicSettings = () => {
     const s = settings.get();
-    return { ...s, torznab: s.torznab.map((t) => ({ ...t, apiKey: t.apiKey ? '••••••' : '' })) };
+    return {
+      ...s,
+      omdbApiKey: s.omdbApiKey ? MASK : '',
+      torznab: s.torznab.map((t) => ({ ...t, apiKey: t.apiKey ? MASK : '' })),
+    };
   };
 
   async function api(req, res, url) {
@@ -80,7 +85,8 @@ export async function startServer({
     if (route === 'GET /meta') {
       return send(res, 200, {
         categories: Object.fromEntries(Object.entries(CATEGORIES).map(([k, v]) => [k, v.label])),
-        genres: Object.keys(GENRES),
+        genres: Object.fromEntries(Object.entries(GENRES).map(([k, v]) => [k, v.label])),
+        imdb: Boolean(settings.get().omdbApiKey),
         providers: activeProviders(settings.get()).map((p) => ({ id: p.id, name: p.name })),
       });
     }
@@ -90,10 +96,10 @@ export async function startServer({
         category: url.searchParams.get('category') || 'all',
         genre: url.searchParams.get('genre') || '',
       };
-      if (!params.query.trim() && !params.genre) return send(res, 400, { error: 'Bir şey yazın ya da bir tür seçin.' });
+      if (!params.query.trim() && !params.genre && params.category !== 'adult') return send(res, 400, { error: 'Bir şey yazın ya da bir tür seçin.' });
       const providers = activeProviders(settings.get());
       if (!providers.length) return send(res, 400, { error: 'Etkin arama kaynağı yok. Ayarlar’dan bir kaynak açın.' });
-      return send(res, 200, await searchAll(params, providers, { fetch: fetchImpl }));
+      return send(res, 200, await searchAll(params, providers, { fetch: fetchImpl, omdbApiKey: settings.get().omdbApiKey }));
     }
     if (route === 'GET /settings') return send(res, 200, publicSettings());
     if (route === 'PUT /settings') {
@@ -102,11 +108,12 @@ export async function startServer({
       if (Array.isArray(body.torznab)) {
         const old = settings.get().torznab;
         body.torznab = body.torznab.map((t) => {
-          if (t.apiKey !== '••••••') return t;
+          if (t.apiKey !== MASK) return t;
           const prev = old.find((o) => o.url === t.url);
           return { ...t, apiKey: prev?.apiKey || '' };
         });
       }
+      if (body.omdbApiKey === MASK) delete body.omdbApiKey;
       settings.update(body);
       return send(res, 200, publicSettings());
     }
