@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="app-token" content="__APP_TOKEN__" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https:; style-src 'self'; script-src 'self'; connect-src 'self'" />
   <title>Torrent Bul</title>
   <link rel="icon" href="icon.svg" />
   <link rel="stylesheet" href="styles.css" />
@@ -35,18 +35,52 @@
       <form class="search" id="search-form" role="search" autocomplete="off">
         <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
         <input id="q" name="q" type="search" placeholder="Örn. Nosferatu, belgesel, Charlie Chaplin…" aria-label="Arama" />
+        <div class="search-divider" aria-hidden="true"></div>
+        <label class="select in-search">
+          <span class="visually-hidden">Kategori</span>
+          <select id="category"></select>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </label>
         <button class="primary-btn" type="submit" id="search-btn">Ara</button>
       </form>
+    </section>
 
-      <div class="filters">
-        <div class="segmented" id="categories" role="tablist" aria-label="Kategori"></div>
-        <div class="chips" id="genres" aria-label="Türler"></div>
-      </div>
+    <section class="browse" id="browse" aria-labelledby="browse-title">
+      <h2 class="section-label" id="browse-title">Türlere göz at</h2>
+      <div class="genre-grid" id="genres"></div>
     </section>
 
     <section class="results-wrap" aria-live="polite">
-      <div class="results-head" id="results-head" hidden>
-        <p id="results-summary"></p>
+      <div class="toolbar" id="toolbar" hidden>
+        <div class="toolbar-left">
+          <p id="results-summary"></p>
+          <button type="button" class="filter-pill" id="genre-pill" hidden></button>
+        </div>
+        <div class="toolbar-right">
+          <label class="select compact">
+            <span class="select-label">Tür</span>
+            <select id="genre-filter"></select>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </label>
+          <label class="select compact">
+            <span class="select-label">Sırala</span>
+            <select id="sort">
+              <option value="year-desc">En yeni</option>
+              <option value="year-asc">En eski</option>
+              <option value="rating">En yüksek puan</option>
+              <option value="popular">En popüler</option>
+              <option value="genre">Türe göre</option>
+              <option value="size">Boyut (büyükten küçüğe)</option>
+              <option value="relevance">En alakalı</option>
+            </select>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </label>
+          <label class="switch" title="Türkçe sonuçları her sıralamada üstte tut">
+            <input type="checkbox" id="tr-first" checked />
+            <span class="toggle-ui" aria-hidden="true"></span>
+            <span>Türkçe önce</span>
+          </label>
+        </div>
       </div>
       <div class="notice" id="notice" hidden></div>
       <ol class="results" id="results"></ol>
@@ -96,12 +130,30 @@
         </label>
         <div id="torznab-list" class="torznab-list"></div>
         <button class="ghost-btn small" type="button" id="add-torznab">+ Kendi indeksleyicini ekle (Jackett / Prowlarr)</button>
-        <p class="hint">Torznab adresi ve API anahtarı, kendi kurduğun Jackett ya da Prowlarr’dan alınır. Uygulama hiçbir siteyi kendiliğinden kullanmaz.</p>
+        <p class="hint">Jackett’ı kurduysan adres hazır gelir; Jackett sayfasının sağ üstündeki <strong>API Key</strong>’i yapıştırman yeterli. Jackett’a eklediğin tüm siteler aranır ve her sonucun hangi siteden geldiği gösterilir.</p>
       </fieldset>
+
+      <label class="field">
+        <span>IMDb puanları (isteğe bağlı)</span>
+        <input id="set-omdb" type="password" placeholder="OMDb API anahtarı" spellcheck="false" />
+        <p class="hint">Film ve dizilerde IMDb puanı, tür ve afiş gösterilir. Ücretsiz anahtarı <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noopener">omdbapi.com</a> adresinden alabilirsin. Anahtar yoksa Internet Archive kullanıcı puanı gösterilir.</p>
+      </label>
 
       <div class="modal-foot">
         <button class="ghost-btn" value="cancel">Vazgeç</button>
         <button class="primary-btn" value="save" id="settings-save">Kaydet</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal small" id="age-gate">
+    <form method="dialog">
+      <div class="age-badge" aria-hidden="true">18+</div>
+      <h2>Yetişkin içerik</h2>
+      <p>Bu bölüm yalnızca 18 yaşından büyükler içindir. Devam ederek 18 yaşından büyük olduğunu onaylıyorsun.</p>
+      <div class="modal-foot">
+        <button class="ghost-btn" value="cancel">Vazgeç</button>
+        <button class="primary-btn" value="ok">18 yaşından büyüğüm</button>
       </div>
     </form>
   </dialog>
