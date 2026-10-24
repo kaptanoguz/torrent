@@ -450,7 +450,8 @@ function activeCard(d) {
       : d.status === 'paused' || d.status === 'error'
       ? `<button class="icon-btn" data-act="resume" aria-label="Devam et" title="Devam et">${ICONS.play}</button>`
       : `<button class="icon-btn" data-act="pause" aria-label="Duraklat" title="Duraklat">${ICONS.pause}</button>`;
-  const label = d.status === 'connecting' && !d.fileCount && d.key.startsWith('magnet:') ? 'Dosyalar bakılıyor…' : STATUS[d.status] || d.status;
+  const label = d.retry ? `Bağlantı koptu, yeniden deneniyor (${d.retry}/5)…`
+    : d.status === 'connecting' && !d.fileCount && d.key.startsWith('magnet:') ? 'Dosyalar bakılıyor…' : STATUS[d.status] || d.status;
   // İndirme sürerken de izlenebilir: WebTorrent izlenen kısmı öne alır.
   const watch = d.videos?.some((v) => v.playableInBrowser) && d.status === 'downloading' && d.progress > 0.02
     ? `<button class="icon-btn" data-act="watch" aria-label="İndirirken izle" title="İndirirken izle">${ICONS.tv}</button>`
