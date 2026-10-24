@@ -78,9 +78,16 @@ export function createTorznabProvider({ id, name, url, apiKey }) {
         if (!res.ok) throw new Error(`${name || 'Torznab'} ${res.status}`);
         return parseTorznab(await res.text(), name || 'Torznab');
       };
-      // Türkçe sürümleri yakalamak için ek bir "türkçe" araması yapılır.
-      const [tr, all] = await Promise.all([run(`${terms} turkce`).catch(() => []), run(terms)]);
-      return [...tr, ...all];
+      // Asıl sorguya ek olarak Türkçe sürümler de denenir; ek sorgu hata verirse
+      // asıl sonuçlar yine döner. Aynı infohash iki listede varsa tek kayıt kalır.
+      const [all, tr] = await Promise.all([run(terms), run(`${terms} türkçe`).catch(() => [])]);
+      const seen = new Set();
+      return [...all, ...tr].filter((r) => {
+        const key = r.infoHash || r.magnet || r.torrentUrl;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     },
   };
 }

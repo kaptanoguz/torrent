@@ -331,6 +331,7 @@ function renderList() {
     const meta = [
       r.turkish ? '<span class="pill tr">Türkçe</span>' : '',
       r.adult ? '<span class="pill adult">+18</span>' : '',
+      r.license ? `<span class="pill license" title="${r.license === 'CC' ? 'Creative Commons lisanslı' : 'Telif süresi dolmuş, kamu malı'}">${esc(r.license)}</span>` : '',
       r.year ? `<span>${r.year}</span>` : '',
       genres ? `<span>${esc(genres)}</span>` : '',
       r.size ? `<span>${formatBytes(r.size)}</span>` : '',

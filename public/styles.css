@@ -244,6 +244,7 @@ main.is-home .results-wrap { margin-top: 0; }
 .rating .star { width: 16px; height: 16px; fill: #f5b400; stroke: #f5b400; }
 a.rating:hover strong { text-decoration: underline; text-underline-offset: 3px; }
 .pill.adult { background: rgba(217, 52, 74, 0.12); color: var(--danger); }
+.pill.license { background: var(--success-soft); color: var(--success); }
 .result-actions .primary-btn { min-width: 112px; }
 .result-actions .primary-btn.done { background: var(--success-soft); color: var(--success); }
 .result-actions .primary-btn.going { background: var(--accent-soft); color: var(--accent); }

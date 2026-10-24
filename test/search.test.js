@@ -1,18 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { rankResults, isTurkish } from '../src/ranking.js';
-import archive, { buildQuery } from '../src/providers/archive.js';
+import archive, { buildQuery, mapDoc, cleanText } from '../src/providers/archive.js';
+import { searchAll, MAX_RESULTS } from '../src/search.js';
 import { parseTorznab, createTorznabProvider } from '../src/providers/torznab.js';
 
-test('Türkçe sonuçlar üste çıkar, diğer diller listede kalır', () => {
+// Türkçe önceliği artık istemcideki "Türkçe önce" anahtarında; sunucu yalnızca
+// bayrağı üretir ve puana göre sıralar.
+test('Türkçe sonuçlar işaretlenir, sıra puana göre, diğer diller listede kalır', () => {
   const ranked = rankResults([
     { id: 'a', title: 'Nosferatu', language: ['English'], relevance: 3, torrentUrl: 'u1' },
     { id: 'b', title: 'Nosferatu (Türkçe Altyazılı)', relevance: 1, torrentUrl: 'u2' },
     { id: 'c', title: 'Nosferatu', language: ['tur'], relevance: 0.5, torrentUrl: 'u3' },
     { id: 'd', title: 'Nosferatu Eine Symphonie', language: ['German'], relevance: 2, torrentUrl: 'u4' },
   ]);
-  assert.deepEqual(ranked.map((r) => r.id), ['b', 'c', 'a', 'd']);
-  assert.deepEqual(ranked.map((r) => r.turkish), [true, true, false, false]);
+  assert.deepEqual(ranked.map((r) => r.id), ['a', 'd', 'b', 'c']);
+  assert.deepEqual(ranked.map((r) => r.turkish), [false, false, true, true]);
 });
 
 test('aynı torrent iki kez gelirse tekilleştirilir', () => {
@@ -49,9 +52,10 @@ test('Internet Archive araması Türkçe ve genel sorguyu birleştirir', async (
   };
   const results = rankResults(await archive.search({ query: 'film', category: 'all' }, { fetch: fakeFetch }));
   assert.equal(calls.length, 2);
-  assert.equal(results[0].title, 'Türk Filmi');
-  assert.equal(results[0].torrentUrl, 'https://archive.org/download/tr-film/tr-film_archive.torrent');
-  assert.equal(results[1].title, 'English Film');
+  const tr = results.find((r) => r.title === 'Türk Filmi');
+  assert.equal(tr.turkish, true);
+  assert.equal(tr.torrentUrl, 'https://archive.org/download/tr-film/tr-film_archive.torrent');
+  assert.equal(results.find((r) => r.title === 'English Film').turkish, false);
 });
 
 const SAMPLE = `<?xml version="1.0"?><rss><channel>
@@ -83,6 +87,61 @@ test('Torznab sağlayıcısı API anahtarı ve kategoriyle istek atar', async ()
   assert.equal(urls[1].pathname, '/api/v2.0/indexers/all/results/torznab/api');
   assert.equal(urls[1].searchParams.get('apikey'), 'k');
   assert.equal(urls[1].searchParams.get('cat'), '2000');
-  assert.equal(urls[0].searchParams.get('q'), 'bunny turkce');
-  assert.equal(rankResults(results)[0].title, 'Sintel TR Dublaj');
+  assert.equal(urls[0].searchParams.get('q'), 'bunny');
+  assert.equal(urls[1].searchParams.get('q'), 'bunny türkçe');
+  // İki sorgu aynı sonuçları döndürse de tek kayıt kalır.
+  assert.equal(results.length, 2);
+  assert.equal(rankResults(results).find((r) => r.title === 'Sintel TR Dublaj').turkish, true);
+});
+
+test('80 benzersiz sonuç 60’ta kesilmez, üst sınır 120', async () => {
+  const many = (n, prefix) => ({
+    name: prefix,
+    search: async () => Array.from({ length: n }, (_, i) => ({ id: `${prefix}${i}`, title: `${prefix} Film ${i}`, torrentUrl: `http://x/${prefix}${i}`, relevance: i / n })),
+  });
+  const { results } = await searchAll({ query: 'film' }, [many(80, 'a')]);
+  assert.equal(results.length, 80);
+  const big = await searchAll({ query: 'film' }, [many(100, 'a'), many(100, 'b')]);
+  assert.equal(big.results.length, MAX_RESULTS);
+  assert.equal(MAX_RESULTS, 120);
+});
+
+test('tek başına TR Türkçe sayılmaz, Türkçe dublaj sayılır', () => {
+  assert.ok(!isTurkish({ title: 'Intro.TR.2020' }));
+  assert.ok(!isTurkish({ title: 'Movie.2020.1080p.TR' }));
+  assert.ok(isTurkish({ title: 'Film Türkçe Dublaj' }));
+  assert.ok(isTurkish({ title: 'Film.2020.TRDublaj.720p' }));
+  assert.ok(isTurkish({ title: 'Film 2020 tr altyazı' }));
+  assert.ok(isTurkish({ title: 'Film Altyazili 1080p' }));
+});
+
+test('çözünürlük puanı artırır, kamera kaydı düşürür', () => {
+  const ranked = rankResults([
+    { id: 'cam', title: 'Film 2024 HDCAM', torrentUrl: '1', relevance: 1 },
+    { id: 'sd', title: 'Film 2024', torrentUrl: '2', relevance: 1 },
+    { id: 'hd', title: 'Film 2024 720p', torrentUrl: '3', relevance: 1 },
+    { id: 'fhd', title: 'Film 2024 1080p', torrentUrl: '4', relevance: 1 },
+    { id: 'uhd', title: 'Film 2024 2160p', torrentUrl: '5', relevance: 1 },
+  ]);
+  assert.deepEqual(ranked.map((r) => r.id), ['uhd', 'fhd', 'hd', 'sd', 'cam']);
+});
+
+test('dizi sorgusu television konusunu içerir, film sorgusu içermez', () => {
+  assert.match(buildQuery({ query: 'kurtlar', category: 'tv' }), /subject:\("television" OR "tv series" OR "dizi" OR "tv show"\)/);
+  assert.doesNotMatch(buildQuery({ query: 'kurtlar', category: 'movies' }), /television/);
+});
+
+test('lisans rozeti yalnızca lisans adresi varsa dolar', () => {
+  assert.equal(mapDoc({ identifier: 'a', licenseurl: 'http://creativecommons.org/publicdomain/mark/1.0/' }, 0, 1).license, 'Kamu malı');
+  assert.equal(mapDoc({ identifier: 'b', licenseurl: 'https://creativecommons.org/licenses/by-sa/4.0/' }, 0, 1).license, 'CC');
+  assert.equal(mapDoc({ identifier: 'c' }, 0, 1).license, '');
+  assert.equal(mapDoc({ identifier: 'd', licenseurl: 'http://example.com/terms' }, 0, 1).license, '');
+});
+
+test('Lucene işleçleri ve özel karakterler sorguyu bozmaz', async () => {
+  assert.equal(cleanText('"Tom AND Jerry" (1940) OR NOT x*'), 'Tom and Jerry 1940 or not x');
+  const calls = [];
+  const fakeFetch = async (url) => { calls.push(url.searchParams.get('q')); return { ok: true, json: async () => ({ response: { docs: [] } }) }; };
+  assert.deepEqual(await archive.search({ query: '"()" :' }, { fetch: fakeFetch }), []);
+  assert.equal(calls.length, 0);
 });

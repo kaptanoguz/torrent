@@ -4,16 +4,35 @@
 import { CATEGORIES, genreTerms } from '../categories.js';
 
 const API = 'https://archive.org/advancedsearch.php';
-const FIELDS = ['identifier', 'title', 'item_size', 'downloads', 'language', 'year', 'mediatype', 'description', 'subject', 'avg_rating', 'num_reviews'];
+const FIELDS = ['identifier', 'title', 'item_size', 'downloads', 'language', 'year', 'mediatype', 'description', 'subject', 'avg_rating', 'num_reviews', 'licenseurl'];
 const TR_LANGUAGE = 'language:(tur OR turkish OR "Türkçe" OR "Turkce")';
 
 function quote(term) {
   return `"${String(term).replace(/["\\]/g, ' ').trim()}"`;
 }
 
+// Serbest metinden Lucene sözdizimini ayıklar: parantez, tırnak, joker ve
+// AND/OR/NOT gibi işleçler arama hatasına (500) yol açmasın.
+export function cleanText(query = '') {
+  return String(query)
+    .replace(/[()":\\/+\-!{}[\]^~*?&|]/g, ' ')
+    .replace(/\b(AND|OR|NOT|TO)\b/g, (w) => w.toLowerCase())
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Lisans URL'sinden kısa rozet metni; bilinmeyen lisans için boş (uydurma yok).
+export function licenseLabel(url) {
+  const u = firstText(url).toLowerCase();
+  if (!u) return '';
+  if (u.includes('publicdomain')) return 'Kamu malı';
+  if (u.includes('creativecommons.org')) return 'CC';
+  return '';
+}
+
 export function buildQuery({ query = '', category = 'all', genre = '' }, turkishOnly = false) {
   const parts = [];
-  const text = query.replace(/[()":\\]/g, ' ').trim();
+  const text = cleanText(query);
   if (text) parts.push(`(${text})`);
   const terms = genreTerms(genre);
   if (terms.length) parts.push(`subject:(${terms.map(quote).join(' OR ')})`);
@@ -45,6 +64,7 @@ export function mapDoc(doc, index, total) {
     subjects: [].concat(doc.subject || []).map(String).slice(0, 20),
     // Internet Archive kullanıcı puanı 5 üzerindendir; 10'luk ölçeğe çevrilir.
     rating: Number(doc.num_reviews) >= 2 && Number(doc.avg_rating) ? { value: Number(doc.avg_rating) * 2, source: 'Archive', votes: Number(doc.num_reviews) } : null,
+    license: licenseLabel(doc.licenseurl),
     webSeed: true,
     torrentUrl: `https://archive.org/download/${encodeURIComponent(id)}/${encodeURIComponent(id)}_archive.torrent`,
     pageUrl: `https://archive.org/details/${encodeURIComponent(id)}`,
@@ -74,6 +94,8 @@ export default {
   configurable: false,
   async search(params, { fetch: fetchImpl = fetch, timeoutMs } = {}) {
     // Sadece tür seçildiyse en popülerleri getir; aksi halde alaka sırası.
+    // Yalnızca özel karakterlerden oluşan sorgu: her şeyi getirmek yerine boş dön.
+    if (params.query?.trim() && !cleanText(params.query) && !params.genre) return [];
     const sort = params.query?.trim() ? '' : 'downloads desc';
     // Türkçe sonuçlar ayrı sorgu ile garanti altına alınır, genel sorgu
     // diğer dillerdeki içeriği getirir.

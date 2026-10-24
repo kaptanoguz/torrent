@@ -4,7 +4,7 @@
 export const CATEGORIES = {
   all: { label: 'Hepsi', archive: ['movies', 'audio', 'texts', 'software'], torznab: [] },
   movies: { label: 'Film', archive: ['movies'], torznab: [2000] },
-  tv: { label: 'Dizi', archive: ['movies'], torznab: [5000] },
+  tv: { label: 'Dizi', archive: ['movies'], archiveSubjects: ['television', 'tv series', 'dizi', 'tv show'], torznab: [5000] },
   music: { label: 'Müzik', archive: ['audio'], torznab: [3000] },
   books: { label: 'Kitap', archive: ['texts'], torznab: [7000] },
   software: { label: 'Yazılım', archive: ['software'], torznab: [4000] },
