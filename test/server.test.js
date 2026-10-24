@@ -4,7 +4,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import WebTorrent from 'webtorrent';
 import createTorrent from 'create-torrent';
 import { startServer } from '../src/server.js';
 
@@ -19,7 +18,7 @@ async function call(app, p, opts = {}) {
 }
 
 test('API anahtarsız istekleri reddeder, sayfaya anahtarı yerleştirir', async () => {
-  const app = await startServer({ dataDir: tmp(), createClient: () => new WebTorrent({ dht: false, tracker: false, lsd: false, natUpnp: false, natPmp: false }) });
+  const app = await startServer({ dataDir: tmp() });
   try {
     const res = await fetch(new URL('api/downloads', app.url));
     assert.equal(res.status, 403);
@@ -34,7 +33,7 @@ test('API anahtarsız istekleri reddeder, sayfaya anahtarı yerleştirir', async
 
 test('ayarlar kaydedilir ve API anahtarı gizlenir', async () => {
   const dataDir = tmp();
-  const app = await startServer({ dataDir, createClient: () => new WebTorrent({ dht: false, tracker: false, lsd: false }) });
+  const app = await startServer({ dataDir });
   try {
     const put = await call(app, 'settings', {
       method: 'PUT',
@@ -64,7 +63,7 @@ test('web-seed içeren .torrent uçtan uca indirilir (Internet Archive gibi)', a
       const m = /bytes=(\d+)-(\d+)?/.exec(req.headers.range || '');
       const start = m ? Number(m[1]) : 0;
       const end = m && m[2] ? Number(m[2]) : content.length - 1;
-      res.writeHead(m ? 206 : 200, { 'Content-Length': end - start + 1, 'Accept-Ranges': 'bytes' });
+      res.writeHead(m ? 206 : 200, { 'Content-Length': end - start + 1, ...(m ? { 'Content-Range': `bytes ${start}-${end}/${content.length}` } : {}), 'Accept-Ranges': 'bytes' });
       return res.end(content.subarray(start, end + 1));
     }
     res.writeHead(404); res.end();
@@ -81,7 +80,6 @@ test('web-seed içeren .torrent uçtan uca indirilir (Internet Archive gibi)', a
   const app = await startServer({
     dataDir,
     openPath: (p) => opened.push(p),
-    createClient: () => new WebTorrent({ dht: false, tracker: false, lsd: false, natUpnp: false, natPmp: false, utp: false }),
   });
   try {
     await call(app, 'settings', { method: 'PUT', body: JSON.stringify({ downloadDir }) });
@@ -118,7 +116,7 @@ test('web-seed içeren .torrent uçtan uca indirilir (Internet Archive gibi)', a
 });
 
 test('geçersiz magnet reddedilir', async () => {
-  const app = await startServer({ dataDir: tmp(), createClient: () => new WebTorrent({ dht: false, tracker: false, lsd: false }) });
+  const app = await startServer({ dataDir: tmp() });
   try {
     const res = await call(app, 'downloads', { method: 'POST', body: JSON.stringify({ magnet: 'javascript:alert(1)' }) });
     assert.equal(res.status, 400);

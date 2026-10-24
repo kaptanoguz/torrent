@@ -4,13 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import WebTorrent from 'webtorrent';
 import createTorrent from 'create-torrent';
 import { startServer } from '../src/server.js';
 import { subtitleToVtt } from '../src/downloads.js';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'torrent-bul-lib-'));
-const client = () => new WebTorrent({ dht: false, tracker: false, lsd: false, natUpnp: false, natPmp: false, utp: false });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function call(app, p, opts = {}) {
@@ -56,7 +54,7 @@ test('biten indirme kapanır, video ve altyazı sunulur, taşınan dosya tekrar 
     const m = /bytes=(\d+)-(\d+)?/.exec(req.headers.range || '');
     const start = m ? Number(m[1]) : 0;
     const end = m && m[2] ? Number(m[2]) : body.length - 1;
-    res.writeHead(m ? 206 : 200, { 'Content-Length': end - start + 1 });
+    res.writeHead(m ? 206 : 200, { 'Content-Length': end - start + 1, ...(m ? { 'Content-Range': `bytes ${start}-${end}/${body.length}` } : {}) });
     res.end(body.subarray(start, end + 1));
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -67,7 +65,7 @@ test('biten indirme kapanır, video ve altyazı sunulur, taşınan dosya tekrar 
 
   const dataDir = tmp();
   const downloadDir = path.join(dataDir, 'indirilenler');
-  let app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+  let app = await startServer({ dataDir, openPath: () => {} });
   try {
     await call(app, 'settings', { method: 'PUT', body: JSON.stringify({ downloadDir }) });
     const added = await call(app, 'downloads', { method: 'POST', body: JSON.stringify({ torrentUrl: `${base}/item.torrent`, title: 'Film' }) });
@@ -100,7 +98,7 @@ test('biten indirme kapanır, video ve altyazı sunulur, taşınan dosya tekrar 
 
     // Uygulama yeniden açılınca tekrar indirmeye başlamaz.
     await app.close();
-    app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+    app = await startServer({ dataDir, openPath: () => {} });
     await wait(1500);
     const [afterRestart] = (await call(app, 'downloads')).body;
     assert.equal(afterRestart.status, 'done');

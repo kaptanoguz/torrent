@@ -4,12 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import WebTorrent from 'webtorrent';
 import createTorrent from 'create-torrent';
 import { startServer } from '../src/server.js';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'torrent-bul-imp-'));
-const client = () => new WebTorrent({ dht: false, tracker: false, lsd: false, natUpnp: false, natPmp: false, utp: false });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function call(app, p, opts = {}) {
@@ -32,7 +30,7 @@ async function fixture() {
     const m = /bytes=(\d+)-(\d+)?/.exec(req.headers.range || '');
     const start = m ? Number(m[1]) : 0;
     const end = m && m[2] ? Number(m[2]) : content.length - 1;
-    res.writeHead(m ? 206 : 200, { 'Content-Length': end - start + 1 });
+    res.writeHead(m ? 206 : 200, { 'Content-Length': end - start + 1, ...(m ? { 'Content-Range': `bytes ${start}-${end}/${content.length}` } : {}) });
     res.end(content.subarray(start, end + 1));
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -45,7 +43,7 @@ async function fixture() {
 test('bilgisayardaki .torrent dosyaları incelenir ve toplu eklenir', async () => {
   const { server, a, b } = await fixture();
   const dataDir = tmp();
-  const app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+  const app = await startServer({ dataDir, openPath: () => {} });
   try {
     await call(app, 'settings', { method: 'PUT', body: JSON.stringify({ downloadDir: path.join(dataDir, 'dl') }) });
     const files = [
@@ -78,7 +76,7 @@ test('paylaşım açıkken biten torrent paylaşılır; dosya taşınınca durur
   const { server, a } = await fixture();
   const dataDir = tmp();
   const dl = path.join(dataDir, 'dl');
-  let app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+  let app = await startServer({ dataDir, openPath: () => {} });
   try {
     await call(app, 'settings', { method: 'PUT', body: JSON.stringify({ downloadDir: dl, seedAfterDone: true }) });
     await call(app, 'downloads', { method: 'POST', body: JSON.stringify({ torrentFile: a.toString('base64') }) });
@@ -89,7 +87,7 @@ test('paylaşım açıkken biten torrent paylaşılır; dosya taşınınca durur
 
     // Yeniden açılışta da paylaşım sürer (dosyalar yerindeyken).
     await app.close();
-    app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+    app = await startServer({ dataDir, openPath: () => {} });
     await wait(500);
     [d] = (await call(app, 'downloads')).body;
     assert.equal(d.status, 'done');
@@ -110,7 +108,7 @@ test('paylaşım açıkken biten torrent paylaşılır; dosya taşınınca durur
     assert.equal(d.seeding, false);
     assert.equal(d.missing, true);
     await app.close();
-    app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+    app = await startServer({ dataDir, openPath: () => {} });
     await wait(1500);
     [d] = (await call(app, 'downloads')).body;
     assert.equal(d.status, 'done');

@@ -3,13 +3,19 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import parseTorrent from 'parse-torrent';
 import { readJsonSafe, writeJsonAtomic } from './jsonfile.js';
-import { createEngine } from './engine.js';
+
+// Bağlantı kopması, DNS ya da zaman aşımı gibi kendiliğinden düzelebilecek hatalar.
+const TRANSIENT = /fetch failed|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|ENETUNREACH|ENETDOWN|EHOSTUNREACH|EPIPE|socket hang up|network|timed?[ -]?out|Error downloading torrent/i;
+export const isTransientError = (message) => TRANSIENT.test(String(message || ''));
+
+export const MAX_RETRIES = 5;
 
 function friendlyError(message) {
   if (/duplicate/i.test(message)) return 'Bu torrent zaten listede.';
-  if (/fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|Error downloading torrent/i.test(message)) {
+  if (/Error downloading torrent|fetch failed/i.test(message)) {
     return 'Torrent dosyası alınamadı. İnternet bağlantını kontrol edip tekrar dene.';
   }
+  if (isTransientError(message)) return 'Bağlantı koptu ya da zaman aşımına uğradı. İnternet bağlantını kontrol edip tekrar dene.';
   if (/Invalid torrent identifier|Torrent is missing required field/i.test(message)) return 'Geçersiz torrent dosyası.';
   if (/ENOSPC/.test(message)) return 'Diskte yer kalmadı.';
   if (/EACCES|EPERM/.test(message)) return 'İndirme klasörüne yazılamıyor. Ayarlar’dan başka bir klasör seç.';
@@ -111,7 +117,7 @@ export function magnetInfoHash(magnet) {
   return bits.match(/.{4}/g).map((b) => parseInt(b, 2).toString(16)).join('');
 }
 
-// WebTorrent'i saran indirme yöneticisi. Liste diske yazılır, böylece
+// İndirme motorunu (qBittorrent) saran indirme yöneticisi. Liste diske yazılır, böylece
 // uygulama kapanıp açılınca indirmeler kaldığı yerden devam eder.
 
 // Arama sonucundan gelen ve kütüphanede gösterilecek bilgiler. İstemciden
@@ -135,13 +141,13 @@ function cleanInfo(r = {}) {
 export function createDownloadManager({
   stateFile,
   getDownloadDir,
-  createClient,
-  engine = createEngine(createClient),
+  engine,
   shouldSeed = () => false,
   onDone = () => {},
   maxActive = () => Infinity,
+  retryBaseMs = 3000,
 }) {
-  const items = new Map(); // id -> { meta, torrent }
+  const items = new Map(); // id -> { meta, torrent, retryTimer }
 
   function save() {
     writeJsonAtomic(stateFile, [...items.values()].map(({ meta }) => meta));
@@ -164,6 +170,7 @@ export function createDownloadManager({
       torrent = engine.add(source, { path: meta.path, deselect: seed || partial || Boolean(meta.pickFiles) });
     } catch (err) {
       if (seed) return;
+      console.error(`[indirme] ${label(meta)} eklenemedi:`, err.message);
       meta.status = 'error';
       meta.error = friendlyError(err.message);
       return;
@@ -173,6 +180,7 @@ export function createDownloadManager({
     const finish = () => {
       if (seed || finished) return;
       finished = true;
+      delete meta.retryCount;
       meta.status = 'done';
       meta.progress = 1;
       meta.completedAt ??= Date.now();
@@ -181,11 +189,10 @@ export function createDownloadManager({
       try { onDone(libraryInfo(meta)); } catch (err) { console.error('[kütüphane]', err.message); }
       // Paylaşım kapalıysa biten torrent kapatılır: dosyalar sonradan taşınsa
       // ya da silinse bile uygulama onları yeniden indirmeye çalışmaz.
-      if (!shouldSeed()) setImmediate(() => { detach(item); pump(); });
+      if (!shouldSeed()) setImmediate(() => { detach(item, { forget: true }); pump(); });
       else pump();
     };
-    // Seçili dosyalar bitince indirme biter; WebTorrent'in kendi 'done'u yalnızca
-    // tüm dosyalar inince gelir.
+    // Seçili dosyalar bitince indirme biter (dosya bazında 'done' olayları).
     const checkSelected = () => {
       const chosen = selectedFiles(meta).map((f) => torrent.files[f.index]).filter(Boolean);
       if (chosen.length && chosen.every((f) => f.done)) finish();
@@ -202,7 +209,7 @@ export function createDownloadManager({
         meta.status = 'error';
         meta.error = BLOCKED_MESSAGE;
         save();
-        setImmediate(() => { detach(item); pump(); });
+        setImmediate(() => { detach(item, { forget: true }); pump(); });
         return;
       }
       if (screen) {
@@ -241,22 +248,61 @@ export function createDownloadManager({
     torrent.on('done', finish);
     torrent.on('error', (err) => {
       if (meta.status === 'done') { // paylaşım hatası: sessizce dur, indirme durumu bozulmasın
-        detach(item);
+        detach(item, { forget: true });
         save();
         return;
       }
-      meta.status = 'error';
-      meta.error = friendlyError(err.message);
-      item.torrent = null;
+      console.error(`[indirme] ${label(meta)}:`, err.message);
+      // Motor hata veren torrenti kapatır; yeniden denemek yeniden eklemektir.
+      detach(item);
+      if (isTransientError(err.message) && (meta.retryCount || 0) < MAX_RETRIES) {
+        scheduleRetry(item);
+      } else {
+        meta.status = 'error';
+        meta.error = friendlyError(err.message);
+      }
       save();
       pump();
     });
   }
 
-  function detach(item) {
+  function label(meta) {
+    return meta.title || meta.name || meta.id;
+  }
+
+  // Geçici hatada artan aralıkla (3 sn, 6 sn, 12 sn...) en fazla MAX_RETRIES kez yeniden dener.
+  // Beklerken "Bağlanıyor" görünür ama kuyrukta yer tutmaz.
+  function scheduleRetry(item) {
+    const { meta } = item;
+    meta.retryCount = (meta.retryCount || 0) + 1;
+    meta.status = 'connecting';
+    meta.error = null;
+    const delay = retryBaseMs * 2 ** (meta.retryCount - 1);
+    console.error(`[indirme] ${label(meta)}: ${delay / 1000} sn sonra yeniden denenecek (${meta.retryCount}/${MAX_RETRIES})`);
+    clearTimeout(item.retryTimer);
+    item.retryTimer = setTimeout(() => {
+      item.retryTimer = null;
+      // Bu arada duraklatıldı ya da silindiyse dokunma.
+      if (items.get(meta.id) !== item || item.torrent || meta.status !== 'connecting') return;
+      startOrQueue(item);
+      save();
+    }, delay);
+    item.retryTimer.unref?.();
+  }
+
+  function cancelRetry(item) {
+    clearTimeout(item.retryTimer);
+    item.retryTimer = null;
+  }
+
+  // forget: torrent motordan tamamen çıkar (dosyalar kalır). Biten, silinen ve engellenen
+  // indirmeler böyle kapanır; böylece dosyaları sonradan taşınsa da yeniden indirilmez.
+  // Duraklatılanlar motorda bekler; devam edince dosyalar baştan kontrol edilmez.
+  function detach(item, { forget = false } = {}) {
     if (item.torrent) {
       item.meta.uploaded = (item.meta.uploaded || 0) + (item.torrent.uploaded || 0);
-      engine.pause(item.torrent);
+      if (forget) engine.remove(item.torrent);
+      else engine.pause(item.torrent);
       item.torrent = null;
     }
   }
@@ -375,6 +421,7 @@ export function createDownloadManager({
       infoHash: meta.infoHash || null,
       fileCount: (meta.files || []).length,
       skippedPrograms: meta.skippedPrograms || 0,
+      retry: status === 'connecting' ? meta.retryCount || 0 : 0,
       title: meta.title || meta.name || 'İndirme',
       name: meta.name || null,
       source: meta.source || null,
@@ -409,7 +456,11 @@ export function createDownloadManager({
     try {
       // Tamamlananlar yeniden açılmaz; dosyaları taşınmış olsa bile tekrar indirilmez.
       // Seçim bekleyen (picking) indirme kullanıcı dosya seçene kadar açılmaz.
-      if (!['paused', 'done', 'error', 'picking'].includes(meta.status)) startOrQueue(item);
+      // Hata alanlar yeni oturumda baştan denenir; güvenlik engeli (.exe) kalıcıdır.
+      if (meta.status === 'error' && meta.error !== BLOCKED_MESSAGE) {
+        meta.retryCount = 0;
+        startOrQueue(item);
+      } else if (!['paused', 'done', 'error', 'picking'].includes(meta.status)) startOrQueue(item);
       else if (meta.status === 'done' && shouldSeed() && complete(meta)) attach(item, { seed: true });
     } catch (err) {
       meta.status = 'error';
@@ -423,7 +474,7 @@ export function createDownloadManager({
     let changed = false;
     for (const item of items.values()) {
       if (item.torrent && item.meta.status === 'done' && !complete(item.meta)) {
-        detach(item);
+        detach(item, { forget: true });
         changed = true;
       }
     }
@@ -553,7 +604,7 @@ export function createDownloadManager({
       for (const item of items.values()) {
         if (item.meta.status !== 'done') continue;
         if (on && !item.torrent && complete(item.meta)) attach(item, { seed: true });
-        if (!on && item.torrent) detach(item);
+        if (!on && item.torrent) detach(item, { forget: true });
       }
       save();
     },
@@ -591,6 +642,7 @@ export function createDownloadManager({
       if (!item) return null;
       if (item.meta.status === 'picking') return snapshot(item);
       if (item.torrent) item.meta.progress = progressOf(item).progress;
+      cancelRetry(item);
       detach(item);
       item.meta.status = 'paused';
       save();
@@ -600,15 +652,20 @@ export function createDownloadManager({
     resume(id) {
       const item = items.get(id);
       if (!item) return null;
-      // Kullanıcı "devam" derse iş sırayı beklemeden başlar.
-      if (!item.torrent && item.meta.status !== 'done') startOrQueue(item, { force: item.meta.status === 'queued' || item.meta.status === 'paused' });
+      // Kullanıcı "devam" ya da "tekrar dene" derse iş sırayı beklemeden ve deneme sayısı sıfırdan başlar.
+      if (!item.torrent && item.meta.status !== 'done') {
+        cancelRetry(item);
+        item.meta.retryCount = 0;
+        startOrQueue(item, { force: ['queued', 'paused', 'error', 'connecting'].includes(item.meta.status) });
+      }
       save();
       return snapshot(item);
     },
     remove(id) {
       const item = items.get(id);
       if (!item) return false;
-      detach(item);
+      cancelRetry(item);
+      detach(item, { forget: true });
       items.delete(id);
       save();
       pump();
@@ -651,12 +708,14 @@ export function createDownloadManager({
       const video = files[index];
       if (!video) return null;
       const live = item.torrent && !item.torrent.destroyed ? item.torrent : null;
-      const onDisk = (f) => {
+      // qBittorrent dosyayı baştan tam boyutta açar; indirme sürerken boyut değil motorun durumu esas.
+      const onDisk = (f, i) => {
+        if (live?.files?.[i]) return live.files[i].done;
         try { return fs.statSync(filePath(item.meta, f)).size === f.length; } catch { return false; }
       };
       const base = video.name.replace(/\.[^.]+$/, '').toLowerCase();
       const subs = files
-        .map((f, i) => ({ ...f, i, ready: onDisk(f) }))
+        .map((f, i) => ({ ...f, i, ready: onDisk(f, i) }))
         .filter((f) => fileKind(f.name) === 'subtitle' && f.length <= MAX_SUBTITLE_BYTES && (f.ready || live?.files?.[f.i]));
       const score = (f) => {
         const n = f.name.toLowerCase();
@@ -678,6 +737,7 @@ export function createDownloadManager({
     async close() {
       clearInterval(seedWatch);
       for (const item of items.values()) {
+        cancelRetry(item);
         if (!item.torrent) continue;
         if (item.meta.status !== 'done' && item.meta.status !== 'picking') item.meta.progress = progressOf(item).progress;
         item.meta.uploaded = (item.meta.uploaded || 0) + (item.torrent.uploaded || 0);

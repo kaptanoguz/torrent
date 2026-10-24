@@ -4,15 +4,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { EventEmitter } from 'node:events';
-import WebTorrent from 'webtorrent';
 import createTorrent from 'create-torrent';
 import { startServer } from '../src/server.js';
-import { createEngine } from '../src/engine.js';
+import { createQbEngine } from '../src/qbittorrent.js';
 import { createSettingsStore } from '../src/settings.js';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'torrent-bul-queue-'));
-const client = () => new WebTorrent({ dht: false, tracker: false, lsd: false, natUpnp: false, natPmp: false, utp: false });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function call(app, p, opts = {}) {
@@ -42,7 +39,7 @@ test('limit 1 iken ikinci indirme sırada bekler, birincisi bitince başlar', as
     const m = /bytes=(\d+)-(\d+)?/.exec(req.headers.range || '');
     const start = m ? Number(m[1]) : 0;
     const end = m && m[2] ? Number(m[2]) : body.length - 1;
-    res.writeHead(m ? 206 : 200, { 'Content-Length': end - start + 1 });
+    res.writeHead(m ? 206 : 200, { 'Content-Length': end - start + 1, ...(m ? { 'Content-Range': `bytes ${start}-${end}/${body.length}` } : {}) });
     res.end(body.subarray(start, end + 1));
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -53,7 +50,7 @@ test('limit 1 iken ikinci indirme sırada bekler, birincisi bitince başlar', as
   const t2 = await make('iki.mp4', b);
 
   const dataDir = tmp();
-  const app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+  const app = await startServer({ dataDir, openPath: () => {} });
   try {
     await call(app, 'settings', { method: 'PUT', body: JSON.stringify({ downloadDir: path.join(dataDir, 'dl'), maxActiveDownloads: 1 }) });
     const first = await call(app, 'downloads', { method: 'POST', body: JSON.stringify({ torrentFile: t1.toString('base64') }) });
@@ -80,7 +77,7 @@ test('limit 1 iken ikinci indirme sırada bekler, birincisi bitince başlar', as
 
 test('duraklatma sırayı boşaltır, sıradaki başlar', async () => {
   const dataDir = tmp();
-  const app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+  const app = await startServer({ dataDir, openPath: () => {} });
   try {
     await call(app, 'settings', { method: 'PUT', body: JSON.stringify({ downloadDir: path.join(dataDir, 'dl'), maxActiveDownloads: 1 }) });
     const one = await call(app, 'downloads', { method: 'POST', body: JSON.stringify({ magnet: `magnet:?xt=urn:btih:${'1'.repeat(40)}` }) });
@@ -97,20 +94,24 @@ test('duraklatma sırayı boşaltır, sıradaki başlar', async () => {
   }
 });
 
-test('hız sınırı ayarı motora uygulanır ve 0 kapatır', () => {
+test('hız sınırı ayarı motora uygulanır ve 0 kapatır', async () => {
   const calls = [];
-  const fake = Object.assign(new EventEmitter(), {
-    add: () => ({}),
-    throttleDownload: (r) => calls.push(['down', r]),
-    throttleUpload: (r) => calls.push(['up', r]),
-    destroy: (cb) => cb(),
-  });
-  const engine = createEngine(() => fake);
+  const api = {
+    get: async () => [],
+    post: async (p, body) => {
+      if (p.startsWith('transfer/')) calls.push([p === 'transfer/setDownloadLimit' ? 'down' : 'up', Number(body.limit)]);
+      return 'Ok.';
+    },
+  };
+  const engine = createQbEngine({ start: async () => ({ api }) });
   engine.throttle({ download: 500 * 1024, upload: 0 });
-  engine.add('magnet:?xt=urn:btih:x', { path: '/tmp' }); // istemci ilk eklemede açılır, sınır o an uygulanır
-  assert.deepEqual(calls, [['down', 512000], ['up', -1]]);
+  engine.add(`magnet:?xt=urn:btih:${'9'.repeat(40)}`, { path: tmp() }); // qBittorrent ilk eklemede açılır, sınır o an uygulanır
+  await wait(50);
+  assert.deepEqual(calls, [['down', 512000], ['up', 0]]);
   engine.throttle({ download: 0, upload: 64 * 1024 });
-  assert.deepEqual(calls.slice(2), [['down', -1], ['up', 65536]]);
+  await wait(20);
+  assert.deepEqual(calls.slice(2), [['down', 0], ['up', 65536]]);
+  await engine.destroy();
 });
 
 test('kuyruk ve hız ayarları sınırlanır, eski ayar dosyası varsayılanları alır', () => {
