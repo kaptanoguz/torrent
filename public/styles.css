@@ -415,6 +415,8 @@ body.adult-mode .select.in-search select { color: var(--danger); }
 .check input { width: 16px; height: 16px; accent-color: var(--accent); flex: none; margin: 0; }
 .import-list .check { padding: 10px 12px; }
 .import-list .check:hover { background: var(--surface-2); }
+.file-pick-name { margin: -4px 0 12px; color: var(--text-2); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.primary-btn.small { height: 32px; padding: 0 12px; font-size: 13.5px; }
 .import-main { display: grid; min-width: 0; }
 .import-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .import-sub { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12.5px; }

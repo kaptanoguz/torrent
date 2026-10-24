@@ -141,7 +141,9 @@ export async function startServer({
       const id = parts[2];
       const action = parts[3];
       let out;
-      if (req.method === 'POST' && action === 'pause') out = downloads.pause(id);
+      if (req.method === 'GET' && action === 'files') out = downloads.files(id);
+      else if (req.method === 'POST' && action === 'files') out = downloads.selectFiles(id, (await readJson(req)).indexes);
+      else if (req.method === 'POST' && action === 'pause') out = downloads.pause(id);
       else if (req.method === 'POST' && action === 'resume') out = downloads.resume(id);
       else if (req.method === 'POST' && action === 'open-file') {
         const file = downloads.openFile(id, Number((await readJson(req)).index));

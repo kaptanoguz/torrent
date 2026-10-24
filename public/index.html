@@ -150,6 +150,27 @@
     </form>
   </dialog>
 
+  <dialog class="modal import" id="file-pick" aria-labelledby="file-pick-title">
+    <form method="dialog">
+      <div class="modal-head">
+        <h2 id="file-pick-title">Hangi dosyalar insin?</h2>
+        <button class="icon-btn" value="cancel" aria-label="Kapat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <p class="file-pick-name" id="file-pick-name"></p>
+      <div class="import-list-head">
+        <label class="check"><input type="checkbox" id="file-pick-all" /> <span>Tümünü seç</span></label>
+        <span id="file-pick-summary"></span>
+      </div>
+      <ul class="import-list" id="file-pick-list"></ul>
+      <div class="modal-foot">
+        <button class="ghost-btn" value="cancel">Vazgeç</button>
+        <button class="primary-btn" value="go" id="file-pick-go">Seçilenleri indir</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog class="player" id="player" aria-label="Oynatıcı">
     <div class="player-head">
       <div class="player-title">

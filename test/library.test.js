@@ -72,6 +72,9 @@ test('biten indirme kapanır, video ve altyazı sunulur, taşınan dosya tekrar 
     await call(app, 'settings', { method: 'PUT', body: JSON.stringify({ downloadDir }) });
     const added = await call(app, 'downloads', { method: 'POST', body: JSON.stringify({ torrentUrl: `${base}/item.torrent`, title: 'Film' }) });
     const id = added.body.id;
+    // İki dosyalı torrent: metadata gelince indirme seçimi bekler.
+    await waitFor(app, (l) => l[0]?.status === 'picking');
+    assert.equal((await call(app, `downloads/${id}/files`, { method: 'POST', body: JSON.stringify({ indexes: [0, 1] }) })).status, 200);
     const [done] = await waitFor(app, (l) => l[0]?.status === 'done');
     assert.ok(done.completedAt);
     assert.equal(done.missing, false);

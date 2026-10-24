@@ -282,12 +282,23 @@ function resultButton(r) {
   if (d.status === 'done' && d.videos?.length) return `<button class="primary-btn done" type="button" data-external="${d.id}" title="Bu biçim yerleşik oynatıcıda açılmıyor">Oynat</button>`;
   if (d.status === 'done') return `<button class="primary-btn done" type="button" data-open="${d.id}">Aç</button>`;
   if (d.status === 'error') return `<button class="primary-btn" type="button" data-resume="${d.id}">Tekrar dene</button>`;
+  if (d.status === 'picking') return `<button class="primary-btn" type="button" data-pick="${d.id}">Dosya seç</button>`;
   if (d.status === 'paused') return `<button class="primary-btn" type="button" data-resume="${d.id}">Devam et</button>`;
   return `<button class="primary-btn going" type="button" data-show-downloads>%${Math.floor(d.progress * 100)}</button>`;
 }
 
+// Aynı torrent farklı magnet yazımıyla da gelebilir; infohash ile de eşleştir.
 function findDownload(r) {
-  return state.downloads.find((d) => d.key === (r.magnet || r.torrentUrl));
+  const hash = (r.infoHash || magnetHash(r.magnet) || '').toLowerCase();
+  return state.downloads.find((d) => d.key === (r.magnet || r.torrentUrl) || (hash && d.infoHash === hash));
+}
+
+function magnetHash(magnet) {
+  const m = /[?&]xt=urn:btih:([0-9a-f]{40}|[a-z2-7]{32})(?=&|$)/i.exec(magnet || '');
+  if (!m) return null;
+  if (m[1].length === 40) return m[1];
+  const bits = [...m[1].toUpperCase()].map((c) => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'.indexOf(c).toString(2).padStart(5, '0')).join('');
+  return bits.match(/.{4}/g).map((b) => parseInt(b, 2).toString(16)).join('');
 }
 
 function renderResults() {
@@ -374,14 +385,22 @@ $('results').addEventListener('click', (e) => {
   if (watch) openPlayer(watch.dataset.watch);
   const external = e.target.closest('[data-external]');
   if (external) openMainExternally(external.dataset.external);
+  const pick = e.target.closest('[data-pick]');
+  if (pick) choosePickFor(pick.dataset.pick);
   if (e.target.closest('[data-show-downloads]')) openDrawer('active');
 });
 
 async function startDownload(body, button) {
   if (button) { button.disabled = true; button.textContent = 'Başlıyor…'; }
   try {
-    await api('downloads', { method: 'POST', body: JSON.stringify(body) });
-    toast('İndirme başladı');
+    // Dosya listesi bilinmiyor: tek dosyaysa sunucu doğrudan indirir,
+    // çok dosyaysa "picking" döner ve seçim penceresi açılır.
+    const d = await api('downloads', { method: 'POST', body: JSON.stringify(body) });
+    if (d.status === 'picking') choosePickFor(d.id);
+    else {
+      if (d.status === 'connecting' && !d.fileCount) awaitingPick.add(d.id);
+      toast(d.fileCount ? 'İndirme başladı' : 'Dosyalar bakılıyor…');
+    }
     await refreshDownloads();
   } catch (err) {
     toast(err.message, 'error');
@@ -393,6 +412,7 @@ async function startDownload(body, button) {
 
 const STATUS = {
   connecting: 'Bağlanıyor…',
+  picking: 'Dosya seçimi bekliyor',
   downloading: 'İndiriliyor',
   paused: 'Duraklatıldı',
   done: 'Tamamlandı',
@@ -414,9 +434,13 @@ function activeCard(d) {
   if (d.status === 'downloading') {
     right = [`${formatBytes(d.downloadSpeed) || '0 B'}/sn`, d.timeRemaining != null ? `${formatTime(d.timeRemaining)} kaldı` : '', `${d.peers} bağlantı`].filter(Boolean).join(' · ');
   } else if (d.status === 'error') right = esc(d.error || '');
-  const toggle = d.status === 'paused' || d.status === 'error'
-    ? `<button class="icon-btn" data-act="resume" aria-label="Devam et" title="Devam et">${ICONS.play}</button>`
-    : `<button class="icon-btn" data-act="pause" aria-label="Duraklat" title="Duraklat">${ICONS.pause}</button>`;
+  else if (d.status === 'picking') right = `${d.fileCount} dosya`;
+  const toggle = d.status === 'picking'
+    ? '<button class="primary-btn small" type="button" data-act="pick">Dosya seç</button>'
+    : d.status === 'paused' || d.status === 'error'
+      ? `<button class="icon-btn" data-act="resume" aria-label="Devam et" title="Devam et">${ICONS.play}</button>`
+      : `<button class="icon-btn" data-act="pause" aria-label="Duraklat" title="Duraklat">${ICONS.pause}</button>`;
+  const label = d.status === 'connecting' && !d.fileCount && d.key.startsWith('magnet:') ? 'Dosyalar bakılıyor…' : STATUS[d.status] || d.status;
   // İndirme sürerken de izlenebilir: WebTorrent izlenen kısmı öne alır.
   const watch = d.videos?.some((v) => v.playableInBrowser) && d.status === 'downloading' && d.progress > 0.02
     ? `<button class="icon-btn" data-act="watch" aria-label="İndirirken izle" title="İndirirken izle">${ICONS.tv}</button>`
@@ -431,7 +455,7 @@ function activeCard(d) {
       </div>
     </div>
     <div class="bar"><span data-width="${pct}"></span></div>
-    <div class="dl-stats"><span><span class="state">${STATUS[d.status] || d.status}</span>${d.status !== 'connecting' ? ` · %${pct}` : ''}</span><span>${right}</span></div>
+    <div class="dl-stats"><span><span class="state">${label}</span>${d.status !== 'connecting' && d.status !== 'picking' ? ` · %${pct}` : ''}</span><span>${right}</span></div>
   </li>`;
 }
 
@@ -532,6 +556,12 @@ async function refreshDownloads() {
     const list = await api('downloads');
     state.downloads = list;
     notifyFinished(list);
+    // Bu oturumda başlatılan magnet'in dosya listesi geldiyse seçimi sor.
+    for (const d of list) {
+      if (!awaitingPick.has(d.id) || d.status === 'connecting') continue;
+      awaitingPick.delete(d.id);
+      if (d.status === 'picking') choosePickFor(d.id);
+    }
     renderDownloads();
     refreshResultButtons();
   } catch {
@@ -554,6 +584,7 @@ $('downloads').addEventListener('click', async (e) => {
   const act = btn.dataset.act;
   if (act === 'watch') return openPlayer(id);
   if (act === 'external') return openMainExternally(id);
+  if (act === 'pick') return choosePickFor(id);
   try {
     if (act === 'remove') await api(`downloads/${id}`, { method: 'DELETE' });
     else await api(`downloads/${id}/${act}`, { method: 'POST' });
@@ -675,7 +706,13 @@ $('import').addEventListener('close', async () => {
   let ok = 0;
   for (const x of chosen) {
     try {
-      await api('downloads', { method: 'POST', body: JSON.stringify({ torrentFile: x.data, title: x.name }) });
+      // Çok dosyalı torrentlerde sırayla hangi dosyaların ineceği sorulur; Vazgeç o torrenti atlar.
+      let fileIndexes;
+      if (x.fileCount > 1 && !x.existing) {
+        fileIndexes = await pickFiles(x.name || x.file, x.files || []);
+        if (!fileIndexes) continue;
+      }
+      await api('downloads', { method: 'POST', body: JSON.stringify({ torrentFile: x.data, title: x.name, fileIndexes }) });
       ok++;
     } catch (err) {
       toast(`${x.name}: ${err.message}`, 'error');
@@ -698,6 +735,105 @@ window.addEventListener('drop', (e) => {
   dragDepth = 0;
   $('drop-overlay').hidden = true;
   addTorrentFiles(e.dataTransfer.files).catch((err) => toast(err.message, 'error'));
+});
+
+/* ---------- Dosya seçimi ---------- */
+
+const awaitingPick = new Set(); // dosya listesi beklenen, bu oturumda başlatılan magnet'ler
+const pickPending = new Set(); // penceresi açık ya da sırada olan indirmeler
+const KIND_LABEL = { video: 'Video', subtitle: 'Altyazı', other: 'Diğer' };
+const filePick = { files: [], selected: new Set() };
+let pickChain = Promise.resolve();
+
+// Varsayılan öneri: en büyük video ve ona uyan altyazı. Video yoksa en büyük dosya.
+function defaultPicks(files) {
+  const largest = (list) => list.reduce((a, b) => (b.length > a.length ? b : a));
+  const picks = new Set();
+  if (!files.length) return picks;
+  const videos = files.filter((f) => f.kind === 'video');
+  if (!videos.length) return picks.add(largest(files).index);
+  const main = largest(videos.filter((v) => !/sample/i.test(v.name)).length ? videos.filter((v) => !/sample/i.test(v.name)) : videos);
+  picks.add(main.index);
+  const base = main.name.replace(/\.[^.]+$/, '').toLowerCase();
+  const subs = files.filter((f) => f.kind === 'subtitle');
+  const sub = subs.find((f) => f.name.toLowerCase().startsWith(base))
+    || subs.find((f) => /(^|[^a-z0-9ğüşıöç])(tur|tr|türkçe|turkce)([^a-z0-9ğüşıöç]|$)/i.test(f.name));
+  if (sub) picks.add(sub.index);
+  return picks;
+}
+
+function renderFilePick() {
+  const { files, selected } = filePick;
+  const size = files.filter((f) => selected.has(f.index)).reduce((n, f) => n + f.length, 0);
+  $('file-pick-summary').textContent = `${files.length} dosya · seçilenler ${selected.size} · ${formatBytes(size) || '0 B'}`;
+  $('file-pick-all').checked = files.length > 0 && selected.size === files.length;
+  $('file-pick-all').indeterminate = selected.size > 0 && selected.size < files.length;
+  $('file-pick-go').disabled = selected.size === 0;
+  $('file-pick-go').textContent = selected.size ? 'Seçilenleri indir' : 'İndir';
+  for (const input of $('file-pick-list').querySelectorAll('[data-fi]')) input.checked = selected.has(Number(input.dataset.fi));
+}
+
+// Pencereyi açar, seçilen indeksleri ya da Vazgeç'te null döndürür. Pencereler
+// sıraya girer; aynı anda iki kez showModal çağrılmaz.
+function pickFiles(title, files) {
+  const run = () => new Promise((resolve) => {
+    filePick.files = files;
+    filePick.selected = defaultPicks(files);
+    $('file-pick-name').textContent = title || '';
+    $('file-pick-name').title = title || '';
+    $('file-pick-list').innerHTML = files.map((f) => `<li>
+      <label class="check">
+        <input type="checkbox" data-fi="${f.index}" />
+        <span class="import-main">
+          <span class="import-name" title="${esc(f.path || f.name)}">${esc(f.name)}</span>
+          <span class="import-sub">${KIND_LABEL[f.kind] || 'Diğer'} · ${formatBytes(f.length) || '0 B'}</span>
+        </span>
+      </label>
+    </li>`).join('');
+    renderFilePick();
+    const dialog = $('file-pick');
+    dialog.returnValue = '';
+    dialog.addEventListener('close', () => {
+      const chosen = [...filePick.selected].sort((a, b) => a - b);
+      resolve(dialog.returnValue === 'go' && chosen.length ? chosen : null);
+    }, { once: true });
+    if (!dialog.open) dialog.showModal();
+  });
+  const result = pickChain.then(run);
+  pickChain = result.catch(() => {});
+  return result;
+}
+
+// "picking" durumundaki indirme için listeyi sunucudan alıp seçimi gönderir.
+async function choosePickFor(id) {
+  if (pickPending.has(id)) return;
+  pickPending.add(id);
+  try {
+    const info = await api(`downloads/${id}/files`);
+    if (!info.files.length) return toast('Dosya listesi henüz gelmedi.', 'error');
+    const indexes = await pickFiles(info.title, info.files);
+    if (!indexes) return; // Vazgeç: kayıt seçim bekler halde kalır
+    await api(`downloads/${id}/files`, { method: 'POST', body: JSON.stringify({ indexes }) });
+    toast('İndirme başladı');
+    await refreshDownloads();
+    openDrawer('active');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    pickPending.delete(id);
+  }
+}
+
+$('file-pick-list').addEventListener('change', (e) => {
+  const i = e.target.dataset.fi;
+  if (i == null) return;
+  if (e.target.checked) filePick.selected.add(Number(i));
+  else filePick.selected.delete(Number(i));
+  renderFilePick();
+});
+$('file-pick-all').addEventListener('change', () => {
+  filePick.selected = new Set($('file-pick-all').checked ? filePick.files.map((f) => f.index) : []);
+  renderFilePick();
 });
 
 /* ---------- Oynatıcı ---------- */

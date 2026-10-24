@@ -54,6 +54,13 @@ export function subtitleToVtt(buf, name) {
 
 const SEED_CHECK_MS = 2000;
 
+// İstemciden gelen dosya indekslerini doğrular: boş olmayan, tekrarsız, sıralı tamsayılar.
+function cleanIndexes(list) {
+  if (!Array.isArray(list) || !list.length) throw new Error('En az bir dosya seçin.');
+  if (!list.every((i) => Number.isInteger(i) && i >= 0)) throw new Error('Geçersiz dosya seçimi.');
+  return [...new Set(list)].sort((a, b) => a - b);
+}
+
 // Magnet bağlantısındaki btih değerini (40 hex ya da 32 base32) küçük harf hex'e çevirir.
 // Bulunamazsa null: çağıran eski (ham metin) karşılaştırmaya döner.
 export function magnetInfoHash(magnet) {
@@ -87,6 +94,8 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
 
   // seed: biten bir torrenti yalnızca paylaşmak için açar. Hiçbir parça seçili
   // olmadığından eksik ya da taşınmış dosyalar asla yeniden indirilmez.
+  // Dosya seçimi: selectedIndexes yoksa tüm dosyalar iner (eski kayıtlar böyle kalır).
+  // pickFiles, dosya listesi henüz bilinmeyen magnet/URL'nin seçim beklediğini söyler.
   function attach(item, { seed = false } = {}) {
     const { meta } = item;
     const source = meta.torrentFile ? Buffer.from(meta.torrentFile, 'base64') : meta.magnet || meta.torrentUrl;
@@ -94,9 +103,10 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       meta.status = 'connecting';
       meta.error = null;
     }
+    const partial = Array.isArray(meta.selectedIndexes);
     let torrent;
     try {
-      torrent = getClient().add(source, { path: meta.path, deselect: seed });
+      torrent = getClient().add(source, { path: meta.path, deselect: seed || partial || Boolean(meta.pickFiles) });
     } catch (err) {
       if (seed) return;
       meta.status = 'error';
@@ -104,16 +114,10 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       return;
     }
     item.torrent = torrent;
-    torrent.on('metadata', () => {
-      meta.name = torrent.name;
-      meta.infoHash = torrent.infoHash;
-      meta.length = torrent.length;
-      meta.files = describeFiles(torrent);
-      if (!meta.torrentFile && torrent.torrentFile) meta.torrentFile = Buffer.from(torrent.torrentFile).toString('base64');
-      save();
-    });
-    torrent.on('done', () => {
-      if (seed) return;
+    let finished = false;
+    const finish = () => {
+      if (seed || finished) return;
+      finished = true;
       meta.status = 'done';
       meta.progress = 1;
       meta.completedAt ??= Date.now();
@@ -122,7 +126,43 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       // Paylaşım kapalıysa biten torrent kapatılır: dosyalar sonradan taşınsa
       // ya da silinse bile uygulama onları yeniden indirmeye çalışmaz.
       if (!shouldSeed()) setImmediate(() => detach(item));
+    };
+    // Seçili dosyalar bitince indirme biter; WebTorrent'in kendi 'done'u yalnızca
+    // tüm dosyalar inince gelir.
+    const checkSelected = () => {
+      const chosen = selectedFiles(meta).map((f) => torrent.files[f.index]).filter(Boolean);
+      if (chosen.length && chosen.every((f) => f.done)) finish();
+    };
+    torrent.on('metadata', () => {
+      meta.name = torrent.name;
+      meta.infoHash = torrent.infoHash;
+      meta.length = torrent.length;
+      meta.files = describeFiles(torrent);
+      if (!meta.torrentFile && torrent.torrentFile) meta.torrentFile = Buffer.from(torrent.torrentFile).toString('base64');
+      if (!seed && Array.isArray(meta.selectedIndexes)) {
+        meta.selectedIndexes = meta.selectedIndexes.filter((i) => i < torrent.files.length);
+        if (!meta.selectedIndexes.length) delete meta.selectedIndexes;
+      }
+      if (!seed && Array.isArray(meta.selectedIndexes)) {
+        for (const i of meta.selectedIndexes) {
+          torrent.files[i].select();
+          torrent.files[i].once('done', checkSelected);
+        }
+      } else if (!seed && meta.pickFiles) {
+        if (torrent.files.length > 1) {
+          // Birden fazla dosya: kullanıcı seçene kadar hiçbir parça indirilmez.
+          meta.status = 'picking';
+          meta.progress = 0;
+          save();
+          setImmediate(() => detach(item));
+          return;
+        }
+        torrent.select(0, torrent.pieces.length - 1);
+      }
+      save();
     });
+    torrent.on('ready', () => { if (!seed && Array.isArray(meta.selectedIndexes)) checkSelected(); });
+    torrent.on('done', finish);
     torrent.on('error', (err) => {
       if (meta.status === 'done') { // paylaşım hatası: sessizce dur, indirme durumu bozulmasın
         detach(item);
@@ -148,52 +188,79 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
     return path.join(meta.path, f.path);
   }
 
+  function isSelected(meta, index) {
+    return !Array.isArray(meta.selectedIndexes) || meta.selectedIndexes.includes(index);
+  }
+
+  function selectedFiles(meta) {
+    return (meta.files || []).map((f, index) => ({ ...f, index })).filter((f) => isSelected(meta, f.index));
+  }
+
   function fileList(meta) {
     const done = meta.status === 'done';
     return (meta.files || []).map((f, index) => ({
       index,
       name: f.name,
+      path: f.path,
       length: f.length,
       kind: fileKind(f.name),
+      selected: isSelected(meta, index),
       exists: done ? fs.existsSync(filePath(meta, f)) : null,
     }));
   }
 
-  // Tüm dosyalar diskte, beklenen boyuttaysa paylaşılabilir.
+  // Seçili dosyaların tümü diskte, beklenen boyuttaysa paylaşılabilir.
   function complete(meta) {
-    return (meta.files || []).length > 0 && meta.files.every((f) => {
+    const files = selectedFiles(meta);
+    return files.length > 0 && files.every((f) => {
       try { return fs.statSync(filePath(meta, f)).size === f.length; } catch { return false; }
     });
   }
 
+  // Seçim varsa ilerleme yalnızca seçili dosyalar üzerinden hesaplanır.
+  function progressOf(item) {
+    const { meta, torrent } = item;
+    if (!Array.isArray(meta.selectedIndexes) || !torrent?.files?.length) {
+      return { progress: torrent.progress, downloaded: torrent.downloaded, length: torrent.length };
+    }
+    const chosen = meta.selectedIndexes.map((i) => torrent.files[i]).filter(Boolean);
+    const length = chosen.reduce((n, f) => n + f.length, 0);
+    const downloaded = chosen.reduce((n, f) => n + Math.min(f.downloaded, f.length), 0);
+    return { progress: length ? downloaded / length : 0, downloaded, length };
+  }
+
   function snapshot(item) {
     const { meta } = item;
-    const files = fileList(meta);
+    const files = fileList(meta).filter((f) => f.selected);
     const missing = meta.status === 'done' && files.length > 0 && files.every((f) => !f.exists);
     const { torrent } = item;
     const live = torrent && !torrent.destroyed;
     const uploaded = (meta.uploaded || 0) + (live ? torrent.uploaded || 0 : 0);
     const hasMeta = live && torrent.length > 0;
+    const prog = live ? progressOf(item) : null;
+    const selectedLength = Array.isArray(meta.selectedIndexes) && meta.files ? files.reduce((n, f) => n + f.length, 0) : null;
     let status = meta.status;
-    if (live && status !== 'done' && status !== 'error') status = torrent.done ? 'done' : hasMeta ? 'downloading' : 'connecting';
+    if (live && status !== 'done' && status !== 'error' && status !== 'picking') status = torrent.done ? 'done' : hasMeta || status === 'downloading' ? 'downloading' : 'connecting';
     return {
       id: meta.id,
       key: meta.magnet || meta.torrentUrl || `infohash:${meta.infoHash}`,
+      infoHash: meta.infoHash || null,
+      fileCount: (meta.files || []).length,
       title: meta.title || meta.name || 'İndirme',
       name: meta.name || null,
       source: meta.source || null,
       status,
       error: meta.error || null,
-      progress: live ? torrent.progress : meta.status === 'done' ? 1 : meta.progress || 0,
-      downloaded: live ? torrent.downloaded : null,
-      length: (live && torrent.length) || meta.length || null,
+      progress: live ? prog.progress : meta.status === 'done' ? 1 : meta.progress || 0,
+      downloaded: live ? prog.downloaded : null,
+      length: (live && prog.length) || selectedLength || meta.length || null,
       downloadSpeed: live ? torrent.downloadSpeed : 0,
       uploadSpeed: live ? torrent.uploadSpeed : 0,
       timeRemaining: live && Number.isFinite(torrent.timeRemaining) ? torrent.timeRemaining : null,
       peers: live ? torrent.numPeers : 0,
       seeding: Boolean(live && meta.status === 'done' && files.every((f) => f.exists)),
       uploaded,
-      ratio: meta.length ? uploaded / meta.length : 0,
+      ratio: (selectedLength || meta.length) ? uploaded / (selectedLength || meta.length) : 0,
       path: meta.path,
       addedAt: meta.addedAt,
       completedAt: meta.completedAt || null,
@@ -212,7 +279,8 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
     items.set(meta.id, item);
     try {
       // Tamamlananlar yeniden açılmaz; dosyaları taşınmış olsa bile tekrar indirilmez.
-      if (meta.status !== 'paused' && meta.status !== 'done' && meta.status !== 'error') attach(item);
+      // Seçim bekleyen (picking) indirme kullanıcı dosya seçene kadar açılmaz.
+      if (!['paused', 'done', 'error', 'picking'].includes(meta.status)) attach(item);
       else if (meta.status === 'done' && shouldSeed() && complete(meta)) attach(item, { seed: true });
     } catch (err) {
       meta.status = 'error';
@@ -255,15 +323,18 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
         name: t.name,
         length: t.length,
         fileCount: t.files.length,
+        files: t.files.slice(0, 500).map((f, index) => ({ index, name: f.name, path: f.path, length: f.length, kind: fileKind(f.name) })),
         private: Boolean(t.private),
         existing: existing ? snapshot(existing).status : null,
       };
     },
-    async add({ magnet, torrentUrl, torrentFile, title, source }) {
+    async add({ magnet, torrentUrl, torrentFile, title, source, fileIndexes }) {
+      const indexes = fileIndexes == null ? null : cleanIndexes(fileIndexes);
       if (torrentFile) {
         const info = await this.inspect(torrentFile);
         const found = [...items.values()].find((i) => i.meta.infoHash === info.infoHash);
         if (found) return snapshot(found);
+        if (indexes && indexes.some((i) => i >= info.fileCount)) throw new Error('Geçersiz dosya seçimi.');
         const meta = {
           id: crypto.randomUUID(),
           title: title || info.name,
@@ -274,6 +345,7 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
           infoHash: info.infoHash,
           name: info.name,
           length: info.length,
+          ...(indexes && indexes.length < info.fileCount ? { selectedIndexes: indexes } : {}),
           path: getDownloadDir(),
           status: 'connecting',
           addedAt: Date.now(),
@@ -310,6 +382,8 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
         magnet: magnet || null,
         torrentUrl: torrentUrl || null,
         infoHash: hash || undefined,
+        // Seçim verilmediyse dosya listesi gelince kullanıcıya sorulur.
+        ...(indexes ? { selectedIndexes: indexes } : { pickFiles: true }),
         path: getDownloadDir(),
         status: 'connecting',
         addedAt: Date.now(),
@@ -330,10 +404,37 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       }
       save();
     },
+    // Dosya seçme penceresi için liste. Magnet'te metadata gelene kadar boştur.
+    files(id) {
+      const item = items.get(id);
+      if (!item) return null;
+      const snap = snapshot(item);
+      return { id: snap.id, title: snap.title, status: snap.status, files: fileList(item.meta).slice(0, 500).map(({ exists, ...f }) => f) };
+    },
+    // Yalnızca seçilen dosyaları indir. Seçim downloads.json'a yazılır ve
+    // yeniden açılışta aynı dosyalar seçili kalır.
+    selectFiles(id, fileIndexes) {
+      const item = items.get(id);
+      if (!item) return null;
+      const indexes = cleanIndexes(fileIndexes);
+      const count = (item.meta.files || []).length;
+      if (!count) throw new Error('Dosya listesi henüz gelmedi.');
+      if (indexes.some((i) => i >= count)) throw new Error('Geçersiz dosya seçimi.');
+      detach(item);
+      if (indexes.length === count) delete item.meta.selectedIndexes;
+      else item.meta.selectedIndexes = indexes;
+      delete item.meta.pickFiles;
+      item.meta.completedAt = null;
+      attach(item);
+      item.meta.status = 'downloading';
+      save();
+      return snapshot(item);
+    },
     pause(id) {
       const item = items.get(id);
       if (!item) return null;
-      item.meta.progress = item.torrent?.progress ?? item.meta.progress;
+      if (item.meta.status === 'picking') return snapshot(item);
+      if (item.torrent) item.meta.progress = progressOf(item).progress;
       detach(item);
       item.meta.status = 'paused';
       save();
@@ -405,7 +506,7 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       clearInterval(seedWatch);
       for (const item of items.values()) {
         if (!item.torrent) continue;
-        item.meta.progress = item.torrent.progress;
+        if (item.meta.status !== 'done' && item.meta.status !== 'picking') item.meta.progress = progressOf(item).progress;
         item.meta.uploaded = (item.meta.uploaded || 0) + (item.torrent.uploaded || 0);
       }
       save();
