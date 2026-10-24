@@ -19,7 +19,10 @@ function tag(xml, name) {
 function attrs(xml) {
   const out = {};
   for (const m of xml.matchAll(/<(?:torznab|newznab):attr\s+name="([^"]+)"\s+value="([^"]*)"/gi)) {
-    out[m[1].toLowerCase()] = decode(m[2]);
+    const key = m[1].toLowerCase();
+    // Jackett standart kategoriden sonra sitenin kendi kodunu (100000+) da yazar; standart olan kalsın.
+    if (key === 'category' && out.category && Number(out.category) < 100000) continue;
+    out[key] = decode(m[2]);
   }
   return out;
 }
@@ -51,6 +54,8 @@ export function parseTorznab(xml, sourceName) {
       magnet: magnet || undefined,
       torrentUrl: magnet ? undefined : link || undefined,
       pageUrl: tag(item, 'comments') || undefined,
+      // Bazı indeksleyiciler (Jackett) sitedeki afişi de verir; IMDb afişi bulunursa onun yerine geçer.
+      poster: /^https:\/\//.test(a.coverurl || '') ? a.coverurl : undefined,
       relevance: ((items.length - index) / Math.max(items.length, 1)) * 2,
     };
   }).filter((r) => r.title && (r.magnet || r.torrentUrl));

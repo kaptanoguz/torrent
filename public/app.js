@@ -151,6 +151,25 @@ function goHome() {
   $('search-btn').disabled = false;
 }
 
+// Aramada süreye sığmayan afiş ve IMDb puanları sonradan gelir; sonuçlar beklemeden görünür.
+async function fillRatings(seq) {
+  const items = state.results.filter((r) => !r.imdbUrl && (r.category === 'movies' || r.category === 'tv'))
+    .slice(0, 40).map(({ id, title, year, category, imdbId }) => ({ id, title, year, category, imdbId }));
+  if (!items.length) return;
+  const { ratings } = await api('ratings', { method: 'POST', body: JSON.stringify({ items }) }).catch(() => ({}));
+  if (seq !== state.searchSeq || !ratings || !Object.keys(ratings).length) return;
+  for (const r of state.results) {
+    const info = ratings[r.id];
+    if (!info) continue;
+    if (info.rating) r.rating = info.rating;
+    if (info.poster) r.poster = info.poster;
+    if (!r.year && info.year) r.year = info.year;
+    r.imdbUrl = info.imdbUrl;
+    r.genres = [...new Set([...(r.genres || []), ...info.genres])];
+  }
+  renderResults();
+}
+
 async function search() {
   const q = $('q').value.trim();
   if (/^magnet:\?/i.test(q)) return showMagnet(q);
@@ -171,6 +190,7 @@ async function search() {
     state.genreFilter = '';
     state.errors = data.errors;
     renderResults();
+    fillRatings(seq);
   } catch (err) {
     if (seq !== state.searchSeq) return;
     $('results').innerHTML = '';

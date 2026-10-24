@@ -10,8 +10,8 @@ import { createDownloadManager, subtitleToVtt, MAX_SUBTITLE_BYTES } from './down
 import { createQbEngine } from './qbittorrent.js';
 import { activeProviders, searchAll } from './search.js';
 import { createLibrary } from './library.js';
-import { createRatingsCache } from './ratings.js';
-import { CATEGORIES, GENRES } from './categories.js';
+import { createRatingsCache, addImdbRatings } from './ratings.js';
+import { CATEGORIES, GENRES, detectGenres } from './categories.js';
 
 const MASK = '••••••';
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
@@ -111,6 +111,25 @@ export async function startServer({
       const providers = activeProviders(settings.get());
       if (!providers.length) return send(res, 400, { error: 'Etkin arama kaynağı yok. Ayarlar’dan bir kaynak açın.' });
       return send(res, 200, await searchAll(params, providers, { fetch: fetchImpl, omdbApiKey: settings.get().omdbApiKey, ratingsCache }));
+    }
+    // Aramada süreye sığmayan afiş ve puanlar: arayüz sonuçları gösterdikten sonra sorar.
+    if (route === 'POST /ratings') {
+      const body = await readJson(req);
+      const items = (Array.isArray(body.items) ? body.items : []).slice(0, 40)
+        .filter((r) => r && typeof r.id === 'string' && typeof r.title === 'string' && (r.category === 'movies' || r.category === 'tv'))
+        .map((r) => ({
+          id: r.id,
+          title: r.title.slice(0, 300),
+          year: Number.isInteger(r.year) ? r.year : null,
+          category: r.category,
+          imdbId: /^tt\d{5,10}$/.test(r.imdbId || '') ? r.imdbId : undefined,
+        }));
+      await addImdbRatings(items, settings.get().omdbApiKey, { fetch: fetchImpl, ratingsCache, budgetMs: 8000 });
+      const out = {};
+      for (const r of items) {
+        if (r.imdbUrl) out[r.id] = { rating: r.rating, poster: r.poster, imdbUrl: r.imdbUrl, year: r.year, genres: detectGenres(r.subjects || []) };
+      }
+      return send(res, 200, { ratings: out });
     }
     if (route === 'GET /settings') return send(res, 200, publicSettings());
     if (route === 'PUT /settings') {
