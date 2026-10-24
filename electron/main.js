@@ -11,6 +11,9 @@ let tray = null;
 let quitting = false;
 const pendingMagnets = []; // sunucu hazır olmadan gelen bağlantılar
 
+// Linux masaüstü pencereyi torrent-bul.desktop kısayoluyla (npm run kisayol) bu adla eşleştirir.
+if (process.platform === 'linux') app.commandLine.appendSwitch('class', 'torrent-bul');
+
 // Tek örnek: ikinci açılış (ör. tarayıcıda magnet'e tıklamak) mevcut pencereye gelir.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -71,6 +74,8 @@ async function createWindow() {
     minWidth: 760,
     minHeight: 560,
     title: 'Torrent Bul',
+    // Simge verilmezse Linux'ta pencere ve görev çubuğunda genel çark simgesi çıkar.
+    icon: path.join(here, 'icon.png'),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0d0f14' : '#f6f7fb',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     autoHideMenuBar: true,
