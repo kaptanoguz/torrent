@@ -143,6 +143,7 @@ $('home-link').addEventListener('click', (e) => {
 
 function goHome() {
   state.searchSeq++;
+  loadLibrary();
   $('main').classList.add('is-home');
   $('results').innerHTML = '';
   $('toolbar').hidden = true;
@@ -375,7 +376,11 @@ $('results').addEventListener('click', (e) => {
   const dl = e.target.closest('[data-dl]');
   if (dl) {
     const r = state.results.find((x) => x.id === dl.dataset.dl);
-    if (r) startDownload({ magnet: r.magnet, torrentUrl: r.torrentUrl, title: r.title, source: r.source }, dl);
+    // Kütüphanede afiş, yıl ve tür görünsün diye sonuç bilgileri de gönderilir.
+    if (r) {
+      const { magnet, torrentUrl, title, source, year, poster, genres, imdbId, imdbUrl, pageUrl, license } = r;
+      startDownload({ magnet, torrentUrl, title, source, year, poster, genres, imdbId, imdbUrl, pageUrl, license }, dl);
+    }
   }
   const open = e.target.closest('[data-open]');
   if (open) api(`downloads/${open.dataset.open}/open`, { method: 'POST' }).catch((err) => toast(err.message, 'error'));
@@ -543,6 +548,7 @@ function notifyFinished(list) {
     if (d.status !== 'done' || seenDone.has(d.id)) continue;
     seenDone.add(d.id);
     if (firstLoad) continue;
+    loadLibrary();
     toast(`İndirme tamamlandı: ${d.title}`);
     try {
       if ('Notification' in window && Notification.permission === 'granted') new Notification('İndirme tamamlandı', { body: d.title, icon: 'icon.svg' });
@@ -838,7 +844,7 @@ $('file-pick-all').addEventListener('change', () => {
 
 /* ---------- Oynatıcı ---------- */
 
-const player = { id: null, index: null };
+const player = { id: null, index: null, infoHash: null, videos: [], lastSent: 0 };
 
 function mediaUrl(id, index, suffix = '') {
   return `/media/${encodeURIComponent(id)}/${index}${suffix}?t=${encodeURIComponent(TOKEN)}`;
@@ -853,16 +859,17 @@ function showPlayerError(title) {
   $('player-error').hidden = false;
 }
 
-function loadVideo(id, index) {
+function loadVideo(id, index, startAt = 0) {
   const video = $('player-video');
   player.id = id;
   player.index = index;
+  player.lastSent = Date.now();
   $('player-error').hidden = true;
   video.hidden = false;
   video.replaceChildren();
   const d = state.downloads.find((x) => x.id === id);
   // Yerleşik oynatıcının açamayacağı biçimler (mkv, avi, x265…) hiç denenmez.
-  if (d?.videos?.find((v) => v.index === index)?.playableInBrowser === false) {
+  if (player.videos.find((v) => v.index === index)?.playableInBrowser === false) {
     return showPlayerError('Bu biçim yerleşik oynatıcıda açılmıyor.');
   }
   // Altyazı yalnızca biten indirmelerde aranır; yoksa istek 404 döner ve iz yok sayılır.
@@ -871,32 +878,53 @@ function loadVideo(id, index) {
     video.append(track);
   }
   video.src = mediaUrl(id, index);
-  $('player-hint').hidden = d?.status === 'done';
+  // Kaldığı yerden devam: süre bilinince konuma atla.
+  if (startAt > 0) video.addEventListener('loadedmetadata', () => { video.currentTime = startAt; }, { once: true });
+  $('player-hint').hidden = !d || d.status === 'done';
   $('player-hint').textContent = 'İndirme sürüyor: henüz inmeyen kısımlara atlamak biraz bekletebilir.';
   video.play().catch(() => {});
 }
 
-function openPlayer(id) {
+// entry: kütüphane kaydı (indirme listeden kaldırılmış olabilir). index/startAt: kaldığı yer.
+function openPlayer(id, { entry, index, startAt = 0 } = {}) {
   const d = state.downloads.find((x) => x.id === id);
-  if (!d?.videos?.length) return toast('Bu indirmede video dosyası yok.', 'error');
-  const videos = [...d.videos].sort((a, b) => a.name.localeCompare(b.name, 'tr', { numeric: true }));
-  $('player-title').textContent = d.title;
+  const list = d?.videos?.length ? d.videos
+    : (entry?.items || []).filter((i) => !i.missing).map((i) => ({ index: i.fileIndex, name: i.name, playableInBrowser: i.playableInBrowser }));
+  if (!list.length) return toast('Bu indirmede video dosyası yok.', 'error');
+  const videos = [...list].sort((a, b) => a.name.localeCompare(b.name, 'tr', { numeric: true }));
+  player.videos = videos;
+  player.infoHash = d?.infoHash || entry?.infoHash || null;
+  $('player-title').textContent = entry?.title || d.title;
   $('player-episode').innerHTML = videos.map((v) => `<option value="${v.index}">${esc(v.name)}</option>`).join('');
   $('player-episode-wrap').hidden = videos.length < 2;
   // Birden çok video varsa (dizi bölümleri) oynatılabilen ilki, tek videoda en büyüğü açılır.
-  const first = videos.length > 1 ? videos.find((v) => v.playableInBrowser) || videos[0] : mainVideo(d);
+  const first = videos.find((v) => v.index === index)
+    || (videos.length > 1 ? videos.find((v) => v.playableInBrowser) || videos[0] : d ? mainVideo(d) : videos[0]);
   $('player-episode').value = String(first.index);
-  $('player').showModal();
-  loadVideo(id, first.index);
+  if (!$('player').open) $('player').showModal();
+  loadVideo(id, first.index, first.index === index ? startAt : 0);
+}
+
+// İzleme konumunu kütüphaneye yaz (en fazla 5 sn'de bir; kapanışta ve bitişte hemen).
+function sendProgress(extra = {}, force = false) {
+  const video = $('player-video');
+  if (!player.infoHash || player.index == null || !state.library.some((e) => e.infoHash === player.infoHash)) return;
+  if (!force && Date.now() - player.lastSent < 5000) return;
+  if (!video.currentTime && !extra.watched) return;
+  player.lastSent = Date.now();
+  const body = { fileIndex: player.index, positionSec: video.currentTime, durationSec: Number.isFinite(video.duration) ? video.duration : undefined, ...extra };
+  api(`library/${player.infoHash}/progress`, { method: 'PUT', body: JSON.stringify(body) }).catch(() => {});
 }
 
 function closePlayer() {
   const video = $('player-video');
+  if (video.getAttribute('src')) sendProgress({}, true);
   video.pause();
   video.removeAttribute('src');
   video.replaceChildren();
   video.load();
   if ($('player').open) $('player').close();
+  setTimeout(loadLibrary, 300);
 }
 
 function openExternal() {
@@ -910,10 +938,80 @@ $('player-video').addEventListener('error', () => {
   if (!$('player-video').getAttribute('src')) return;
   showPlayerError('Bu dosya dahili oynatıcıda açılamıyor.');
 });
+$('player-video').addEventListener('timeupdate', () => sendProgress());
+$('player-video').addEventListener('ended', () => sendProgress({ watched: true }, true));
 $('player-close').addEventListener('click', closePlayer);
 $('player').addEventListener('close', closePlayer);
 $('player-external').addEventListener('click', openExternal);
 $('player-error-external').addEventListener('click', openExternal);
+
+/* ---------- Kütüphanen ---------- */
+
+state.library = [];
+
+// Şeritte gösterilecek dosya: yarıda kalan, yoksa izlenmemiş ilk, yoksa ilk.
+function currentItem(entry) {
+  const items = entry.items.filter((i) => !i.missing);
+  return items.find((i) => !i.watched && i.positionSec > 0) || items.find((i) => !i.watched) || items[0] || entry.items[0];
+}
+
+function libraryCard(e) {
+  const item = currentItem(e);
+  const pct = item?.durationSec ? Math.min(100, Math.round((item.positionSec / item.durationSec) * 100)) : 0;
+  const watched = Boolean(item?.watched);
+  const missing = e.missing || !item;
+  const art = e.poster
+    ? `<img src="${esc(e.poster)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
+    : `<span class="type-tile movies">${ICONS.movies}</span>`;
+  const label = missing ? 'Dosya bulunamadı' : pct > 0 && !watched ? 'Kaldığın yerden izle' : 'İzle';
+  return `<li class="lib-card${missing ? ' is-missing' : ''}" data-hash="${esc(e.infoHash)}">
+    <button class="lib-poster" type="button" data-lib-play ${missing ? 'disabled' : ''} aria-label="${esc(e.title)}: ${label}" title="${label}">
+      ${art}${watched ? '<span class="lib-watched">İzlendi</span>' : ''}
+    </button>
+    <p class="lib-title" title="${esc(e.title)}">${esc(e.title)}</p>
+    <p class="lib-sub">
+      <span>${missing ? '<span class="missing">dosya bulunamadı</span>' : esc(e.year || '')}</span>
+      ${item && !missing ? `<button class="lib-mark" type="button" data-lib-watched aria-pressed="${watched}" title="${watched ? 'İzlenmedi olarak işaretle' : 'İzlendi olarak işaretle'}">✓ İzlendi</button>` : ''}
+    </p>
+    ${pct > 0 && !watched ? `<div class="bar"><span data-width="${pct}"></span></div>` : ''}
+  </li>`;
+}
+
+async function loadLibrary() {
+  try {
+    state.library = await api('library');
+  } catch {
+    return;
+  }
+  $('library').hidden = state.library.length === 0;
+  $('library-list').innerHTML = state.library.map(libraryCard).join('');
+  applyInlineStyles($('library-list'));
+  for (const img of $('library-list').querySelectorAll('img')) {
+    img.addEventListener('error', () => img.replaceWith(Object.assign(document.createElement('span'), { className: 'type-tile movies', innerHTML: ICONS.movies })), { once: true });
+  }
+}
+
+$('library-list').addEventListener('click', (ev) => {
+  const card = ev.target.closest('[data-hash]');
+  const entry = card && state.library.find((x) => x.infoHash === card.dataset.hash);
+  if (!entry) return;
+  const item = currentItem(entry);
+  if (ev.target.closest('[data-lib-watched]')) {
+    api(`library/${entry.infoHash}/progress`, { method: 'PUT', body: JSON.stringify({ fileIndex: item.fileIndex, watched: !item.watched }) })
+      .then(loadLibrary).catch((err) => toast(err.message, 'error'));
+    return;
+  }
+  if (!ev.target.closest('[data-lib-play]') || !item || item.missing) return;
+  const d = state.downloads.find((x) => x.id === item.downloadId && x.status === 'done');
+  // Bitmeye 20 sn'den az kaldıysa baştan başlar.
+  const nearEnd = item.durationSec && item.durationSec - item.positionSec < 20;
+  const startAt = item.watched || nearEnd ? 0 : item.positionSec;
+  if (!item.playableInBrowser) {
+    if (d) return openMainExternally(d.id);
+    return toast('Bu biçim yerleşik oynatıcıda açılmıyor.', 'error');
+  }
+  openPlayer(d ? d.id : `lib-${entry.infoHash}`, { entry, index: item.fileIndex, startAt });
+});
 
 /* ---------- Ayarlar ---------- */
 
@@ -968,4 +1066,5 @@ window.addEventListener('scroll', () => {
 loadMeta().catch((err) => toast(err.message, 'error'));
 refreshDownloads();
 setInterval(refreshDownloads, 1000);
+loadLibrary();
 $('q').focus();

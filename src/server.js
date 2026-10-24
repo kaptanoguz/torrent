@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { createSettingsStore } from './settings.js';
 import { createDownloadManager } from './downloads.js';
 import { activeProviders, searchAll } from './search.js';
+import { createLibrary } from './library.js';
+import { createRatingsCache } from './ratings.js';
 import { CATEGORIES, GENRES } from './categories.js';
 
 const MASK = '••••••';
@@ -61,12 +63,17 @@ export async function startServer({
   fetchImpl = fetch,
 } = {}) {
   const settings = createSettingsStore(path.join(dataDir, 'settings.json'));
+  const library = createLibrary({ file: path.join(dataDir, 'library.json') });
+  const ratingsCache = createRatingsCache(path.join(dataDir, 'omdb-cache.json'));
   const downloads = createDownloadManager({
     stateFile: path.join(dataDir, 'downloads.json'),
     getDownloadDir: () => settings.get().downloadDir,
     shouldSeed: () => settings.get().seedAfterDone === true,
     createClient: createClient || (await defaultClient()),
+    onDone: (info) => library.upsert(info),
   });
+  // Kütüphaneden önceki sürümlerde bitmiş indirmeler de kütüphaneye girsin.
+  for (const info of downloads.completed()) if (!library.has(info.infoHash)) library.upsert(info);
   // Yalnızca bu uygulamanın kendi sayfası API'yi çağırabilsin diye oturum anahtarı.
   const token = crypto.randomBytes(24).toString('hex');
 
@@ -100,7 +107,7 @@ export async function startServer({
       if (!params.query.trim() && !params.genre && params.category !== 'adult') return send(res, 400, { error: 'Bir şey yazın ya da bir tür seçin.' });
       const providers = activeProviders(settings.get());
       if (!providers.length) return send(res, 400, { error: 'Etkin arama kaynağı yok. Ayarlar’dan bir kaynak açın.' });
-      return send(res, 200, await searchAll(params, providers, { fetch: fetchImpl, omdbApiKey: settings.get().omdbApiKey }));
+      return send(res, 200, await searchAll(params, providers, { fetch: fetchImpl, omdbApiKey: settings.get().omdbApiKey, ratingsCache }));
     }
     if (route === 'GET /settings') return send(res, 200, publicSettings());
     if (route === 'PUT /settings') {
@@ -121,6 +128,11 @@ export async function startServer({
       return send(res, 200, publicSettings());
     }
     if (route === 'GET /downloads') return send(res, 200, downloads.list());
+    if (route === 'GET /library') return send(res, 200, library.list());
+    if (req.method === 'PUT' && parts[1] === 'library' && parts[3] === 'progress' && !parts[4]) {
+      const out = library.progress(parts[2], await readJson(req));
+      return out ? send(res, 200, out) : send(res, 404, { error: 'Kütüphanede yok.' });
+    }
     if (route === 'POST /downloads') {
       const body = await readJson(req);
       return send(res, 201, await downloads.add(body));
@@ -188,12 +200,13 @@ export async function startServer({
     const [, , id, index, extra] = url.pathname.split('/'); // /media/:id/:index[/subtitle.vtt]
     if (url.searchParams.get('t') !== token) return send(res, 403, { error: 'Yetkisiz istek.' });
     if (extra === 'subtitle.vtt') {
-      const sub = downloads.subtitleFor(id, Number(index));
+      const sub = id.startsWith('lib-') ? null : downloads.subtitleFor(id, Number(index));
       if (!sub) return send(res, 404, { error: 'Altyazı yok.' });
       res.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(sub.vtt);
     }
-    const file = downloads.openFile(id, Number(index));
+    // "lib-<infohash>": indirme listeden kaldırılmış ama dosya kütüphanede duruyor.
+    const file = id.startsWith('lib-') ? library.openFile(id.slice(4), Number(index)) : downloads.openFile(id, Number(index));
     if (!file) return send(res, 404, { error: 'Dosya bulunamadı. Taşınmış ya da silinmiş olabilir.' });
     const headers = { 'Content-Type': file.type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' };
     const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
@@ -236,6 +249,7 @@ export async function startServer({
     token,
     async close() {
       await downloads.close();
+      library.close();
       await new Promise((r) => server.close(() => r()));
     },
   };

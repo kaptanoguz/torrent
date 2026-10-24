@@ -15,7 +15,7 @@ function friendlyError(message) {
   return message;
 }
 
-const VIDEO_TYPES = {
+export const VIDEO_TYPES = {
   '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm',
   '.mkv': 'video/x-matroska', '.ogv': 'video/ogg', '.avi': 'video/x-msvideo', '.wmv': 'video/x-ms-wmv',
   '.mpg': 'video/mpeg', '.mpeg': 'video/mpeg', '.ts': 'video/mp2t',
@@ -76,7 +76,24 @@ export function magnetInfoHash(magnet) {
 // WebTorrent'i saran indirme yöneticisi. Liste diske yazılır, böylece
 // uygulama kapanıp açılınca indirmeler kaldığı yerden devam eder.
 
-export function createDownloadManager({ stateFile, getDownloadDir, createClient, shouldSeed = () => false }) {
+// Arama sonucundan gelen ve kütüphanede gösterilecek bilgiler. İstemciden
+// geldiği için türleri ve uzunlukları sınırlanır.
+function cleanInfo(r = {}) {
+  const str = (v, max = 500) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined);
+  const url = (v) => (/^https:\/\//.test(v || '') ? str(v, 1000) : undefined);
+  const info = {
+    year: Number.isInteger(r.year) && r.year > 1800 && r.year < 2200 ? r.year : undefined,
+    poster: url(r.poster),
+    genres: Array.isArray(r.genres) ? r.genres.filter((g) => typeof g === 'string').slice(0, 10).map((g) => g.slice(0, 40)) : undefined,
+    imdbId: /^tt\d{5,10}$/.test(r.imdbId || '') ? r.imdbId : undefined,
+    imdbUrl: url(r.imdbUrl),
+    pageUrl: url(r.pageUrl),
+    license: str(r.license, 40),
+  };
+  return Object.fromEntries(Object.entries(info).filter(([, v]) => v !== undefined));
+}
+
+export function createDownloadManager({ stateFile, getDownloadDir, createClient, shouldSeed = () => false, onDone = () => {} }) {
   let client = null;
   const items = new Map(); // id -> { meta, torrent }
 
@@ -123,6 +140,7 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       meta.completedAt ??= Date.now();
       meta.files = describeFiles(torrent);
       save();
+      try { onDone(libraryInfo(meta)); } catch (err) { console.error('[kütüphane]', err.message); }
       // Paylaşım kapalıysa biten torrent kapatılır: dosyalar sonradan taşınsa
       // ya da silinse bile uygulama onları yeniden indirmeye çalışmaz.
       if (!shouldSeed()) setImmediate(() => detach(item));
@@ -215,6 +233,21 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
     return files.length > 0 && files.every((f) => {
       try { return fs.statSync(filePath(meta, f)).size === f.length; } catch { return false; }
     });
+  }
+
+  // Kütüphane kaydı için: seçili video dosyaları tam yollarıyla.
+  function libraryInfo(meta) {
+    return {
+      ...(meta.info || {}),
+      infoHash: meta.infoHash,
+      downloadId: meta.id,
+      title: meta.title || meta.name,
+      source: meta.source || null,
+      addedAt: meta.addedAt,
+      completedAt: meta.completedAt,
+      files: selectedFiles(meta).filter((f) => fileKind(f.name) === 'video')
+        .map((f) => ({ index: f.index, name: f.name, path: filePath(meta, f) })),
+    };
   }
 
   // Seçim varsa ilerleme yalnızca seçili dosyalar üzerinden hesaplanır.
@@ -328,7 +361,12 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
         existing: existing ? snapshot(existing).status : null,
       };
     },
-    async add({ magnet, torrentUrl, torrentFile, title, source, fileIndexes }) {
+    // Biten indirmeler (kütüphanesi olmayan eski kayıtları aktarmak için).
+    completed() {
+      return [...items.values()].filter((i) => i.meta.status === 'done' && i.meta.infoHash).map((i) => libraryInfo(i.meta));
+    },
+    async add({ magnet, torrentUrl, torrentFile, title, source, fileIndexes, ...rest }) {
+      const info = cleanInfo(rest);
       const indexes = fileIndexes == null ? null : cleanIndexes(fileIndexes);
       if (torrentFile) {
         const info = await this.inspect(torrentFile);
@@ -339,6 +377,7 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
           id: crypto.randomUUID(),
           title: title || info.name,
           source: source || 'Torrent dosyası',
+          info,
           magnet: null,
           torrentUrl: null,
           torrentFile: Buffer.from(torrentFile, 'base64').toString('base64'),
@@ -379,6 +418,7 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
         id: crypto.randomUUID(),
         title: title || null,
         source: source || null,
+        info,
         magnet: magnet || null,
         torrentUrl: torrentUrl || null,
         infoHash: hash || undefined,

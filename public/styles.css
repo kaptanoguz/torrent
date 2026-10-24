@@ -142,6 +142,24 @@ main:not(.is-home) .hero-title, main:not(.is-home) .hero-sub { display: none; }
 .select.compact .select-label { font-size: 13px; color: var(--text-3); font-weight: 500; white-space: nowrap; }
 .select.compact select { border: 0; background: transparent; height: 36px; padding-left: 6px; box-shadow: none; }
 
+/* Kütüphanen */
+.library { margin-top: 48px; }
+main:not(.is-home) .library { display: none; }
+.library-strip { list-style: none; margin: 0; padding: 2px 2px 10px; display: grid; grid-auto-flow: column; grid-auto-columns: 148px; gap: 14px; overflow-x: auto; scroll-snap-type: x proximity; }
+.lib-card { scroll-snap-align: start; min-width: 0; position: relative; }
+.lib-poster { position: relative; display: grid; place-items: center; width: 100%; aspect-ratio: 2 / 3; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); overflow: hidden; cursor: pointer; color: var(--accent); }
+.lib-poster img { width: 100%; height: 100%; object-fit: cover; }
+.lib-poster .type-tile { width: 56px; height: 56px; }
+.lib-poster:hover, .lib-poster:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.lib-poster:disabled { cursor: not-allowed; opacity: 0.55; box-shadow: none; border-color: var(--border); }
+.lib-watched { position: absolute; top: 8px; left: 8px; padding: 2px 8px; border-radius: 99px; font-size: 11.5px; font-weight: 650; background: var(--success); color: #fff; }
+.lib-title { margin: 8px 0 2px; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-sub { margin: 0; font-size: 12.5px; color: var(--text-3); display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.lib-sub .missing { color: var(--danger, #d14343); }
+.lib-card .bar { margin-top: 6px; height: 4px; }
+.lib-mark { border: 0; background: none; padding: 2px 0; font: inherit; font-size: 12.5px; color: var(--text-3); cursor: pointer; }
+.lib-mark:hover, .lib-mark[aria-pressed="true"] { color: var(--success); }
+
 /* Türlere göz at */
 .browse { margin-top: 56px; transition: opacity 0.2s; }
 main:not(.is-home) .browse { display: none; }
