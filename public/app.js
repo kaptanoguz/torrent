@@ -278,7 +278,8 @@ function resultButton(r) {
   const d = findDownload(r);
   if (!d) return `<button class="primary-btn" type="button" data-dl="${esc(r.id)}">İndir</button>`;
   if (d.status === 'done' && d.missing) return `<button class="primary-btn" type="button" data-dl="${esc(r.id)}" title="Dosyalar bulunamadı">Tekrar indir</button>`;
-  if (d.status === 'done' && d.videos?.length) return `<button class="primary-btn done" type="button" data-watch="${d.id}">İzle</button>`;
+  if (d.status === 'done' && d.videos?.some((v) => v.playableInBrowser)) return `<button class="primary-btn done" type="button" data-watch="${d.id}">İzle</button>`;
+  if (d.status === 'done' && d.videos?.length) return `<button class="primary-btn done" type="button" data-external="${d.id}" title="Bu biçim yerleşik oynatıcıda açılmıyor">Oynat</button>`;
   if (d.status === 'done') return `<button class="primary-btn done" type="button" data-open="${d.id}">Aç</button>`;
   if (d.status === 'error') return `<button class="primary-btn" type="button" data-resume="${d.id}">Tekrar dene</button>`;
   if (d.status === 'paused') return `<button class="primary-btn" type="button" data-resume="${d.id}">Devam et</button>`;
@@ -371,6 +372,8 @@ $('results').addEventListener('click', (e) => {
   if (resume) api(`downloads/${resume.dataset.resume}/resume`, { method: 'POST' }).then(refreshDownloads).catch((err) => toast(err.message, 'error'));
   const watch = e.target.closest('[data-watch]');
   if (watch) openPlayer(watch.dataset.watch);
+  const external = e.target.closest('[data-external]');
+  if (external) openMainExternally(external.dataset.external);
   if (e.target.closest('[data-show-downloads]')) openDrawer('active');
 });
 
@@ -415,7 +418,7 @@ function activeCard(d) {
     ? `<button class="icon-btn" data-act="resume" aria-label="Devam et" title="Devam et">${ICONS.play}</button>`
     : `<button class="icon-btn" data-act="pause" aria-label="Duraklat" title="Duraklat">${ICONS.pause}</button>`;
   // İndirme sürerken de izlenebilir: WebTorrent izlenen kısmı öne alır.
-  const watch = d.videos?.length && d.status === 'downloading' && d.progress > 0.02
+  const watch = d.videos?.some((v) => v.playableInBrowser) && d.status === 'downloading' && d.progress > 0.02
     ? `<button class="icon-btn" data-act="watch" aria-label="İndirirken izle" title="İndirirken izle">${ICONS.tv}</button>`
     : '';
   return `<li class="dl ${d.status}" data-id="${d.id}">
@@ -432,16 +435,34 @@ function activeCard(d) {
   </li>`;
 }
 
+// En büyük video asıl dosyadır (örnek/sample dosyalar küçüktür).
+function mainVideo(d) {
+  return d.videos?.length ? d.videos.reduce((a, b) => (b.length > a.length ? b : a)) : null;
+}
+
+function openMainExternally(id) {
+  const d = state.downloads.find((x) => x.id === id);
+  const v = d && mainVideo(d);
+  const req = v
+    ? api(`downloads/${id}/open-file`, { method: 'POST', body: JSON.stringify({ index: v.index }) })
+    : Promise.reject(new Error('Video dosyası yok.'));
+  req.catch(() => api(`downloads/${id}/open`, { method: 'POST' })).catch((err) => toast(err.message, 'error'));
+}
+
 function doneCard(d) {
+  const inBrowser = d.videos?.some((v) => v.playableInBrowser);
   const canPlay = d.videos?.length && !d.missing;
+  const tileAct = inBrowser ? 'watch' : 'external';
+  const tileTitle = !canPlay ? (d.missing ? 'Dosyalar bulunamadı' : 'Video dosyası yok') : inBrowser ? 'Dahili oynatıcıda izle' : 'Harici oynatıcıda aç';
+  const reason = canPlay && !inBrowser ? '<span class="reason">Bu biçim yerleşik oynatıcıda açılmıyor</span>' : '';
   const ratio = d.ratio ? `oran ${d.ratio.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}` : '';
   const info = d.missing
     ? '<span class="missing">Dosyalar taşınmış ya da silinmiş</span>'
     : d.seeding
       ? ['<span class="seeding">Paylaşılıyor</span>', `↑ ${formatBytes(d.uploadSpeed) || '0 B'}/sn`, ratio].filter(Boolean).join(' · ')
-      : [formatBytes(d.length), d.videos?.length > 1 ? `${d.videos.length} video` : '', formatDate(d.completedAt), ratio].filter(Boolean).join(' · ');
+      : [reason, formatBytes(d.length), d.videos?.length > 1 ? `${d.videos.length} video` : '', formatDate(d.completedAt), ratio].filter(Boolean).join(' · ');
   return `<li class="dl done-card${d.missing ? ' is-missing' : ''}" data-id="${d.id}">
-    <button class="play-tile" type="button" data-act="watch" ${canPlay ? '' : 'disabled'} aria-label="İzle" title="${canPlay ? 'Dahili oynatıcıda izle' : d.missing ? 'Dosyalar bulunamadı' : 'Video dosyası yok'}">${canPlay ? ICONS.play : ICONS.file}</button>
+    <button class="play-tile${canPlay && !inBrowser ? ' external' : ''}" type="button" data-act="${tileAct}" ${canPlay ? '' : 'disabled'} aria-label="${tileTitle}" title="${tileTitle}">${canPlay ? ICONS.play : ICONS.file}</button>
     <div class="dl-body">
       <p class="dl-title" title="${esc(d.title)}">${esc(d.title)}</p>
       <p class="dl-sub">${info}</p>
@@ -532,6 +553,7 @@ $('downloads').addEventListener('click', async (e) => {
   const id = btn.closest('[data-id]').dataset.id;
   const act = btn.dataset.act;
   if (act === 'watch') return openPlayer(id);
+  if (act === 'external') return openMainExternally(id);
   try {
     if (act === 'remove') await api(`downloads/${id}`, { method: 'DELETE' });
     else await api(`downloads/${id}/${act}`, { method: 'POST' });
@@ -686,6 +708,15 @@ function mediaUrl(id, index, suffix = '') {
   return `/media/${encodeURIComponent(id)}/${index}${suffix}?t=${encodeURIComponent(TOKEN)}`;
 }
 
+function showPlayerError(title) {
+  const video = $('player-video');
+  video.pause();
+  video.removeAttribute('src');
+  video.hidden = true;
+  $('player-error-title').textContent = title;
+  $('player-error').hidden = false;
+}
+
 function loadVideo(id, index) {
   const video = $('player-video');
   player.id = id;
@@ -694,6 +725,10 @@ function loadVideo(id, index) {
   video.hidden = false;
   video.replaceChildren();
   const d = state.downloads.find((x) => x.id === id);
+  // Yerleşik oynatıcının açamayacağı biçimler (mkv, avi, x265…) hiç denenmez.
+  if (d?.videos?.find((v) => v.index === index)?.playableInBrowser === false) {
+    return showPlayerError('Bu biçim yerleşik oynatıcıda açılmıyor.');
+  }
   // Altyazı yalnızca biten indirmelerde aranır; yoksa istek 404 döner ve iz yok sayılır.
   if (d?.status === 'done') {
     const track = Object.assign(document.createElement('track'), { kind: 'subtitles', label: 'Altyazı', srclang: 'tr', src: mediaUrl(id, index, '/subtitle.vtt'), default: true });
@@ -712,8 +747,8 @@ function openPlayer(id) {
   $('player-title').textContent = d.title;
   $('player-episode').innerHTML = videos.map((v) => `<option value="${v.index}">${esc(v.name)}</option>`).join('');
   $('player-episode-wrap').hidden = videos.length < 2;
-  // Birden çok video varsa (dizi bölümleri) ilki, tek videoda en büyüğü açılır.
-  const first = videos.length > 1 ? videos[0] : d.videos.reduce((a, b) => (b.length > a.length ? b : a));
+  // Birden çok video varsa (dizi bölümleri) oynatılabilen ilki, tek videoda en büyüğü açılır.
+  const first = videos.length > 1 ? videos.find((v) => v.playableInBrowser) || videos[0] : mainVideo(d);
   $('player-episode').value = String(first.index);
   $('player').showModal();
   loadVideo(id, first.index);
@@ -737,8 +772,7 @@ function openExternal() {
 $('player-episode').addEventListener('change', () => loadVideo(player.id, Number($('player-episode').value)));
 $('player-video').addEventListener('error', () => {
   if (!$('player-video').getAttribute('src')) return;
-  $('player-video').hidden = true;
-  $('player-error').hidden = false;
+  showPlayerError('Bu dosya dahili oynatıcıda açılamıyor.');
 });
 $('player-close').addEventListener('click', closePlayer);
 $('player').addEventListener('close', closePlayer);

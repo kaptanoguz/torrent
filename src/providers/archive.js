@@ -52,14 +52,16 @@ export function mapDoc(doc, index, total) {
   };
 }
 
-async function fetchDocs(fetchImpl, q, rows, sort) {
+export const TIMEOUT_MS = 12000;
+
+async function fetchDocs(fetchImpl, q, rows, sort, timeoutMs = TIMEOUT_MS) {
   const url = new URL(API);
   url.searchParams.set('q', q);
   for (const f of FIELDS) url.searchParams.append('fl[]', f);
   url.searchParams.set('rows', String(rows));
   url.searchParams.set('output', 'json');
   if (sort) url.searchParams.append('sort[]', sort);
-  const res = await fetchImpl(url, { headers: { Accept: 'application/json' } });
+  const res = await fetchImpl(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`Internet Archive ${res.status}`);
   const data = await res.json();
   return data?.response?.docs || [];
@@ -70,14 +72,14 @@ export default {
   name: 'Internet Archive',
   description: 'Kamu malı filmler, müzik, kitap ve yazılımlar (yasal).',
   configurable: false,
-  async search(params, { fetch: fetchImpl = fetch } = {}) {
+  async search(params, { fetch: fetchImpl = fetch, timeoutMs } = {}) {
     // Sadece tür seçildiyse en popülerleri getir; aksi halde alaka sırası.
     const sort = params.query?.trim() ? '' : 'downloads desc';
     // Türkçe sonuçlar ayrı sorgu ile garanti altına alınır, genel sorgu
     // diğer dillerdeki içeriği getirir.
     const [tr, all] = await Promise.all([
-      fetchDocs(fetchImpl, buildQuery(params, true), 20, sort).catch(() => []),
-      fetchDocs(fetchImpl, buildQuery(params, false), 40, sort),
+      fetchDocs(fetchImpl, buildQuery(params, true), 20, sort, timeoutMs).catch(() => []),
+      fetchDocs(fetchImpl, buildQuery(params, false), 40, sort, timeoutMs),
     ]);
     return [
       ...tr.map((d, i) => ({ ...mapDoc(d, i, tr.length), language: [].concat(d.language || 'tur') })),

@@ -425,3 +425,7 @@ body.adult-mode .select.in-search select { color: var(--danger); }
 .drop-overlay > div { display: grid; gap: 6px; text-align: center; padding: 40px 56px; border: 2px dashed var(--accent); border-radius: 20px; background: var(--surface); box-shadow: var(--shadow-lg); }
 .drop-overlay strong { font-size: 18px; }
 .drop-overlay span { color: var(--text-2); font-size: 14px; }
+
+.dl-sub .reason { color: var(--warn); font-weight: 550; }
+.play-tile.external { background: var(--surface-2); color: var(--text); }
+.play-tile.external:hover:not(:disabled) { background: var(--border); }

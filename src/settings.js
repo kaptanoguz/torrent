@@ -1,6 +1,6 @@
-import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { readJsonSafe, writeJsonAtomic } from './jsonfile.js';
 
 export const DEFAULTS = {
   downloadDir: path.join(os.homedir(), 'Downloads', 'Torrent'),
@@ -13,12 +13,9 @@ export const DEFAULTS = {
 };
 
 export function createSettingsStore(file) {
-  let data = { ...DEFAULTS };
-  try {
-    data = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
-  } catch {
-    // ilk açılış ya da bozuk dosya: varsayılanlarla devam
-  }
+  // Eski sürümlerin dosyası da açılır: eksik alanlar varsayılanlarla tamamlanır.
+  const stored = readJsonSafe(file, {});
+  let data = { ...DEFAULTS, ...(stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {}) };
   return {
     get: () => structuredClone(data),
     update(patch) {
@@ -38,9 +35,8 @@ export function createSettingsStore(file) {
             enabled: t.enabled !== false,
           }));
       }
+      writeJsonAtomic(file, next);
       data = next;
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, JSON.stringify(data, null, 2));
       return structuredClone(data);
     },
   };

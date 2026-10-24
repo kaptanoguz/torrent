@@ -18,7 +18,10 @@ export async function searchAll(params, providers, deps = {}) {
   const errors = [];
   settled.forEach((s, i) => {
     if (s.status === 'fulfilled') results.push(...s.value);
-    else errors.push({ provider: providers[i].name, message: s.reason?.message || String(s.reason) });
+    else {
+      const timedOut = s.reason?.name === 'TimeoutError' || s.reason?.name === 'AbortError';
+      errors.push({ provider: providers[i].name, message: timedOut ? 'Yanıt vermedi (zaman aşımı).' : s.reason?.message || String(s.reason) });
+    }
   });
 
   // +18 içerik yalnızca kendi bölümünde görünür.

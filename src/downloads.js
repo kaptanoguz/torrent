@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import parseTorrent from 'parse-torrent';
+import { readJsonSafe, writeJsonAtomic } from './jsonfile.js';
 
 function friendlyError(message) {
   if (/duplicate/i.test(message)) return 'Bu torrent zaten listede.';
@@ -15,10 +16,17 @@ function friendlyError(message) {
 }
 
 const VIDEO_TYPES = {
-  '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/mp4', '.webm': 'video/webm',
-  '.mkv': 'video/webm', '.ogv': 'video/ogg', '.avi': 'video/x-msvideo', '.wmv': 'video/x-ms-wmv',
+  '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska', '.ogv': 'video/ogg', '.avi': 'video/x-msvideo', '.wmv': 'video/x-ms-wmv',
   '.mpg': 'video/mpeg', '.mpeg': 'video/mpeg', '.ts': 'video/mp2t',
 };
+// Yerleşik oynatıcının (Chromium <video>) güvenle açabildiği kaplar. HEVC/x265
+// kodlu dosyalar mp4 içinde olsa bile çoğu sistemde açılmaz.
+const BROWSER_PLAYABLE = new Set(['.mp4', '.m4v', '.mov', '.webm', '.ogv']);
+
+export function playableInBrowser(name) {
+  return BROWSER_PLAYABLE.has(path.extname(name).toLowerCase()) && !/(^|[^a-z0-9])(hevc|x265|h\.?265)([^a-z0-9]|$)/i.test(name);
+}
 const SUBTITLE_EXT = new Set(['.srt', '.vtt']);
 
 export const fileKind = (name) => {
@@ -44,6 +52,20 @@ export function subtitleToVtt(buf, name) {
   return `WEBVTT\n\n${text.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')}`;
 }
 
+const SEED_CHECK_MS = 2000;
+
+// Magnet bağlantısındaki btih değerini (40 hex ya da 32 base32) küçük harf hex'e çevirir.
+// Bulunamazsa null: çağıran eski (ham metin) karşılaştırmaya döner.
+export function magnetInfoHash(magnet) {
+  const m = /[?&]xt=urn:btih:([0-9a-f]{40}|[a-z2-7]{32})(?=&|$)/i.exec(String(magnet || ''));
+  if (!m) return null;
+  const v = m[1];
+  if (v.length === 40) return v.toLowerCase();
+  let bits = '';
+  for (const c of v.toUpperCase()) bits += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'.indexOf(c).toString(2).padStart(5, '0');
+  return bits.match(/.{4}/g).map((b) => parseInt(b, 2).toString(16)).join('');
+}
+
 // WebTorrent'i saran indirme yöneticisi. Liste diske yazılır, böylece
 // uygulama kapanıp açılınca indirmeler kaldığı yerden devam eder.
 
@@ -60,9 +82,7 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
   }
 
   function save() {
-    const list = [...items.values()].map(({ meta }) => meta);
-    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-    fs.writeFileSync(stateFile, JSON.stringify(list, null, 2));
+    writeJsonAtomic(stateFile, [...items.values()].map(({ meta }) => meta));
   }
 
   // seed: biten bir torrenti yalnızca paylaşmak için açar. Hiçbir parça seçili
@@ -150,15 +170,12 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
     const { meta } = item;
     const files = fileList(meta);
     const missing = meta.status === 'done' && files.length > 0 && files.every((f) => !f.exists);
-    // Paylaşılan dosyalardan biri taşınırsa paylaşım durur.
-    if (item.torrent && meta.status === 'done' && files.some((f) => !f.exists)) { detach(item); save(); }
     const { torrent } = item;
     const live = torrent && !torrent.destroyed;
     const uploaded = (meta.uploaded || 0) + (live ? torrent.uploaded || 0 : 0);
     const hasMeta = live && torrent.length > 0;
     let status = meta.status;
     if (live && status !== 'done' && status !== 'error') status = torrent.done ? 'done' : hasMeta ? 'downloading' : 'connecting';
-    if (live && torrent.done && meta.status !== 'done') { meta.status = 'done'; save(); }
     return {
       id: meta.id,
       key: meta.magnet || meta.torrentUrl || `infohash:${meta.infoHash}`,
@@ -174,7 +191,7 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       uploadSpeed: live ? torrent.uploadSpeed : 0,
       timeRemaining: live && Number.isFinite(torrent.timeRemaining) ? torrent.timeRemaining : null,
       peers: live ? torrent.numPeers : 0,
-      seeding: Boolean(live && meta.status === 'done'),
+      seeding: Boolean(live && meta.status === 'done' && files.every((f) => f.exists)),
       uploaded,
       ratio: meta.length ? uploaded / meta.length : 0,
       path: meta.path,
@@ -182,22 +199,41 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       completedAt: meta.completedAt || null,
       missing,
       // İzlenebilir videolar: indirme sürerken de akış olarak açılabilir.
-      videos: files.filter((f) => f.kind === 'video' && f.exists !== false).map(({ index, name, length }) => ({ index, name, length })),
+      videos: files.filter((f) => f.kind === 'video' && f.exists !== false)
+        .map(({ index, name, length }) => ({ index, name, length, playableInBrowser: playableInBrowser(name) })),
     };
   }
 
   // Önceki oturumdan kalanları geri yükle.
-  try {
-    for (const meta of JSON.parse(fs.readFileSync(stateFile, 'utf8'))) {
-      const item = { meta, torrent: null };
-      items.set(meta.id, item);
+  const stored = readJsonSafe(stateFile, []);
+  for (const meta of Array.isArray(stored) ? stored : []) {
+    if (!meta?.id) continue;
+    const item = { meta, torrent: null };
+    items.set(meta.id, item);
+    try {
       // Tamamlananlar yeniden açılmaz; dosyaları taşınmış olsa bile tekrar indirilmez.
       if (meta.status !== 'paused' && meta.status !== 'done' && meta.status !== 'error') attach(item);
       else if (meta.status === 'done' && shouldSeed() && complete(meta)) attach(item, { seed: true });
+    } catch (err) {
+      meta.status = 'error';
+      meta.error = friendlyError(err.message);
     }
-  } catch {
-    // kayıt yok
   }
+
+  // Paylaşılan dosyalardan biri taşınır ya da silinirse paylaşımı durdur.
+  // Liste okumak (snapshot) yan etkisiz kalsın diye bu iş ayrı bir zamanlayıcıda.
+  function stopBrokenSeeds() {
+    let changed = false;
+    for (const item of items.values()) {
+      if (item.torrent && item.meta.status === 'done' && !complete(item.meta)) {
+        detach(item);
+        changed = true;
+      }
+    }
+    if (changed) save();
+  }
+  const seedWatch = setInterval(stopBrokenSeeds, SEED_CHECK_MS);
+  seedWatch.unref?.();
 
   return {
     list() {
@@ -253,8 +289,10 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       if (magnet && !/^magnet:\?/i.test(magnet)) throw new Error('Geçersiz magnet bağlantısı.');
       if (torrentUrl && !/^https?:\/\//i.test(torrentUrl)) throw new Error('Geçersiz torrent adresi.');
       const key = magnet || torrentUrl;
+      const hash = magnet ? magnetInfoHash(magnet) : null;
       for (const item of items.values()) {
-        if ((item.meta.magnet || item.meta.torrentUrl) !== key) continue;
+        const same = hash ? item.meta.infoHash === hash : (item.meta.magnet || item.meta.torrentUrl) === key;
+        if (!same) continue;
         // Dosyaları silinmiş/taşınmış bir indirmeyi kullanıcı bilerek yeniden isterse indir.
         if (snapshot(item).missing) {
           item.meta.path = getDownloadDir();
@@ -271,6 +309,7 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
         source: source || null,
         magnet: magnet || null,
         torrentUrl: torrentUrl || null,
+        infoHash: hash || undefined,
         path: getDownloadDir(),
         status: 'connecting',
         addedAt: Date.now(),
@@ -361,7 +400,9 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       if (!best) return null;
       return { name: best.name, vtt: subtitleToVtt(fs.readFileSync(filePath(item.meta, best)), best.name) };
     },
+    stopBrokenSeeds,
     async close() {
+      clearInterval(seedWatch);
       for (const item of items.values()) {
         if (!item.torrent) continue;
         item.meta.progress = item.torrent.progress;
