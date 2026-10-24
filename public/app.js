@@ -1101,6 +1101,7 @@ $('settings-btn').addEventListener('click', async () => {
   $('set-archive').checked = s.archiveEnabled !== false;
   $('set-omdb').value = s.omdbApiKey || '';
   $('set-seed').checked = s.seedAfterDone === true;
+  $('set-tray').checked = s.closeToTray === true;
   $('set-max').value = s.maxActiveDownloads;
   $('set-down').value = s.downloadLimitKbps;
   $('set-up').value = s.uploadLimitKbps;
@@ -1125,7 +1126,7 @@ $('settings').addEventListener('close', async () => {
   try {
     await api('settings', {
       method: 'PUT',
-      body: JSON.stringify({ downloadDir: $('set-dir').value, archiveEnabled: $('set-archive').checked, omdbApiKey: $('set-omdb').value, seedAfterDone: $('set-seed').checked, torznab,
+      body: JSON.stringify({ downloadDir: $('set-dir').value, archiveEnabled: $('set-archive').checked, omdbApiKey: $('set-omdb').value, seedAfterDone: $('set-seed').checked, closeToTray: $('set-tray').checked, torznab,
         maxActiveDownloads: Number($('set-max').value) || 1, downloadLimitKbps: Number($('set-down').value) || 0, uploadLimitKbps: Number($('set-up').value) || 0 }),
     });
     toast('Ayarlar kaydedildi');

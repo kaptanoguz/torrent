@@ -265,6 +265,9 @@ export async function startServer({
   return {
     url: `http://${host}:${address.port}/`,
     token,
+    getSettings: () => settings.get(),
+    // Masaüstü uygulaması (ör. işletim sisteminden gelen magnet) için.
+    addDownload: (body) => downloads.add(body),
     async close() {
       await downloads.close();
       library.close();

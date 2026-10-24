@@ -15,6 +15,8 @@ export const DEFAULTS = {
   // KB/sn; 0 = sınırsız.
   downloadLimitKbps: 0,
   uploadLimitKbps: 0,
+  // Masaüstünde pencere kapatılınca tepside çalışmaya devam et (isteğe bağlı).
+  closeToTray: false,
 };
 
 const intIn = (v, min, max) => (Number.isFinite(Number(v)) && String(v).trim() !== '' ? Math.min(max, Math.max(min, Math.round(Number(v)))) : null);
@@ -30,6 +32,7 @@ export function createSettingsStore(file) {
       if (typeof patch.downloadDir === 'string' && patch.downloadDir.trim()) next.downloadDir = patch.downloadDir.trim();
       if (typeof patch.archiveEnabled === 'boolean') next.archiveEnabled = patch.archiveEnabled;
       if (typeof patch.seedAfterDone === 'boolean') next.seedAfterDone = patch.seedAfterDone;
+      if (typeof patch.closeToTray === 'boolean') next.closeToTray = patch.closeToTray;
       if (typeof patch.omdbApiKey === 'string') next.omdbApiKey = patch.omdbApiKey.trim();
       if (patch.maxActiveDownloads != null && intIn(patch.maxActiveDownloads, 1, 10) != null) next.maxActiveDownloads = intIn(patch.maxActiveDownloads, 1, 10);
       for (const k of ['downloadLimitKbps', 'uploadLimitKbps']) {

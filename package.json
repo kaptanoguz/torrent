@@ -42,6 +42,7 @@
       "bin/**",
       "package.json"
     ],
+    "icon": "build/icon.png",
     "directories": {
       "buildResources": "build"
     },
