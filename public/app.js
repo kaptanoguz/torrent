@@ -419,6 +419,7 @@ async function startDownload(body, button) {
 const STATUS = {
   connecting: 'Bağlanıyor…',
   picking: 'Dosya seçimi bekliyor',
+  queued: 'Sırada',
   downloading: 'İndiriliyor',
   paused: 'Duraklatıldı',
   done: 'Tamamlandı',
@@ -443,7 +444,9 @@ function activeCard(d) {
   else if (d.status === 'picking') right = `${d.fileCount} dosya`;
   const toggle = d.status === 'picking'
     ? '<button class="primary-btn small" type="button" data-act="pick">Dosya seç</button>'
-    : d.status === 'paused' || d.status === 'error'
+    : d.status === 'queued'
+      ? `<button class="icon-btn" data-act="resume" aria-label="Şimdi başlat" title="Sırayı beklemeden başlat">${ICONS.play}</button>`
+      : d.status === 'paused' || d.status === 'error'
       ? `<button class="icon-btn" data-act="resume" aria-label="Devam et" title="Devam et">${ICONS.play}</button>`
       : `<button class="icon-btn" data-act="pause" aria-label="Duraklat" title="Duraklat">${ICONS.pause}</button>`;
   const label = d.status === 'connecting' && !d.fileCount && d.key.startsWith('magnet:') ? 'Dosyalar bakılıyor…' : STATUS[d.status] || d.status;
@@ -461,7 +464,7 @@ function activeCard(d) {
       </div>
     </div>
     <div class="bar"><span data-width="${pct}"></span></div>
-    <div class="dl-stats"><span><span class="state">${label}</span>${d.status !== 'connecting' && d.status !== 'picking' ? ` · %${pct}` : ''}</span><span>${right}</span></div>
+    <div class="dl-stats"><span><span class="state">${label}</span>${!['connecting', 'picking', 'queued'].includes(d.status) ? ` · %${pct}` : ''}</span><span>${right}</span></div>
   </li>`;
 }
 
@@ -1098,6 +1101,9 @@ $('settings-btn').addEventListener('click', async () => {
   $('set-archive').checked = s.archiveEnabled !== false;
   $('set-omdb').value = s.omdbApiKey || '';
   $('set-seed').checked = s.seedAfterDone === true;
+  $('set-max').value = s.maxActiveDownloads;
+  $('set-down').value = s.downloadLimitKbps;
+  $('set-up').value = s.uploadLimitKbps;
   $('torznab-list').innerHTML = '';
   s.torznab.forEach(addTorznabRow);
   $('settings').showModal();
@@ -1119,7 +1125,8 @@ $('settings').addEventListener('close', async () => {
   try {
     await api('settings', {
       method: 'PUT',
-      body: JSON.stringify({ downloadDir: $('set-dir').value, archiveEnabled: $('set-archive').checked, omdbApiKey: $('set-omdb').value, seedAfterDone: $('set-seed').checked, torznab }),
+      body: JSON.stringify({ downloadDir: $('set-dir').value, archiveEnabled: $('set-archive').checked, omdbApiKey: $('set-omdb').value, seedAfterDone: $('set-seed').checked, torznab,
+        maxActiveDownloads: Number($('set-max').value) || 1, downloadLimitKbps: Number($('set-down').value) || 0, uploadLimitKbps: Number($('set-up').value) || 0 }),
     });
     toast('Ayarlar kaydedildi');
   } catch (err) {

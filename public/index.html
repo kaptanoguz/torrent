@@ -231,6 +231,22 @@
         <input id="set-dir" type="text" spellcheck="false" />
       </label>
 
+      <div class="field-row">
+        <label class="field">
+          <span>Aynı anda indirme</span>
+          <input id="set-max" type="number" min="1" max="10" step="1" inputmode="numeric" />
+        </label>
+        <label class="field">
+          <span>İndirme sınırı (KB/sn)</span>
+          <input id="set-down" type="number" min="0" step="50" inputmode="numeric" placeholder="0 = sınırsız" />
+        </label>
+        <label class="field">
+          <span>Yükleme sınırı (KB/sn)</span>
+          <input id="set-up" type="number" min="0" step="50" inputmode="numeric" placeholder="0 = sınırsız" />
+        </label>
+      </div>
+      <p class="hint field-row-hint">Fazla indirmeler sıraya girer, biri bitince sıradaki başlar. 0 hız sınırını kaldırır.</p>
+
       <label class="toggle">
         <input type="checkbox" id="set-seed" />
         <span class="toggle-ui" aria-hidden="true"></span>

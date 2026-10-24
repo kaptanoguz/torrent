@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import parseTorrent from 'parse-torrent';
 import { readJsonSafe, writeJsonAtomic } from './jsonfile.js';
+import { createEngine } from './engine.js';
 
 function friendlyError(message) {
   if (/duplicate/i.test(message)) return 'Bu torrent zaten listede.';
@@ -107,17 +108,16 @@ function cleanInfo(r = {}) {
   return Object.fromEntries(Object.entries(info).filter(([, v]) => v !== undefined));
 }
 
-export function createDownloadManager({ stateFile, getDownloadDir, createClient, shouldSeed = () => false, onDone = () => {} }) {
-  let client = null;
+export function createDownloadManager({
+  stateFile,
+  getDownloadDir,
+  createClient,
+  engine = createEngine(createClient),
+  shouldSeed = () => false,
+  onDone = () => {},
+  maxActive = () => Infinity,
+}) {
   const items = new Map(); // id -> { meta, torrent }
-
-  function getClient() {
-    if (!client) {
-      client = createClient();
-      client.on('error', (err) => console.error('[webtorrent]', err.message));
-    }
-    return client;
-  }
 
   function save() {
     writeJsonAtomic(stateFile, [...items.values()].map(({ meta }) => meta));
@@ -137,7 +137,7 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
     const partial = Array.isArray(meta.selectedIndexes);
     let torrent;
     try {
-      torrent = getClient().add(source, { path: meta.path, deselect: seed || partial || Boolean(meta.pickFiles) });
+      torrent = engine.add(source, { path: meta.path, deselect: seed || partial || Boolean(meta.pickFiles) });
     } catch (err) {
       if (seed) return;
       meta.status = 'error';
@@ -157,7 +157,8 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       try { onDone(libraryInfo(meta)); } catch (err) { console.error('[kütüphane]', err.message); }
       // Paylaşım kapalıysa biten torrent kapatılır: dosyalar sonradan taşınsa
       // ya da silinse bile uygulama onları yeniden indirmeye çalışmaz.
-      if (!shouldSeed()) setImmediate(() => detach(item));
+      if (!shouldSeed()) setImmediate(() => { detach(item); pump(); });
+      else pump();
     };
     // Seçili dosyalar bitince indirme biter; WebTorrent'in kendi 'done'u yalnızca
     // tüm dosyalar inince gelir.
@@ -176,20 +177,18 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
         if (!meta.selectedIndexes.length) delete meta.selectedIndexes;
       }
       if (!seed && Array.isArray(meta.selectedIndexes)) {
-        for (const i of meta.selectedIndexes) {
-          torrent.files[i].select();
-          torrent.files[i].once('done', checkSelected);
-        }
+        engine.selectFiles(torrent, meta.selectedIndexes);
+        for (const i of meta.selectedIndexes) torrent.files[i].once('done', checkSelected);
       } else if (!seed && meta.pickFiles) {
         if (torrent.files.length > 1) {
           // Birden fazla dosya: kullanıcı seçene kadar hiçbir parça indirilmez.
           meta.status = 'picking';
           meta.progress = 0;
           save();
-          setImmediate(() => detach(item));
+          setImmediate(() => { detach(item); pump(); });
           return;
         }
-        torrent.select(0, torrent.pieces.length - 1);
+        engine.selectAll(torrent);
       }
       save();
     });
@@ -205,15 +204,47 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       meta.error = friendlyError(err.message);
       item.torrent = null;
       save();
+      pump();
     });
   }
 
   function detach(item) {
     if (item.torrent) {
       item.meta.uploaded = (item.meta.uploaded || 0) + (item.torrent.uploaded || 0);
-      try { item.torrent.destroy(); } catch { /* zaten kapalı */ }
+      engine.pause(item.torrent);
       item.torrent = null;
     }
+  }
+
+  // Kuyruk: aynı anda en fazla maxActive() indirme bağlanır/iner. Seçim bekleyen,
+  // duraklatılmış ve paylaşılan (bitmiş) torrentler sırayı meşgul etmez.
+  function activeCount() {
+    let n = 0;
+    for (const { meta, torrent } of items.values()) {
+      if (torrent && !torrent.destroyed && meta.status !== 'done' && meta.status !== 'picking') n++;
+    }
+    return n;
+  }
+
+  function startOrQueue(item, { force = false } = {}) {
+    if (!force && activeCount() >= maxActive()) {
+      item.meta.status = 'queued';
+      item.meta.error = null;
+      return;
+    }
+    attach(item);
+  }
+
+  // Yer açılınca sıradakileri (eklenme sırasıyla) başlat.
+  function pump() {
+    const queued = [...items.values()].filter((i) => i.meta.status === 'queued' && !i.torrent)
+      .sort((a, b) => a.meta.addedAt - b.meta.addedAt);
+    let started = false;
+    while (queued.length && activeCount() < maxActive()) {
+      attach(queued.shift());
+      started = true;
+    }
+    if (started) save();
   }
 
   function filePath(meta, f) {
@@ -320,14 +351,14 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
 
   // Önceki oturumdan kalanları geri yükle.
   const stored = readJsonSafe(stateFile, []);
-  for (const meta of Array.isArray(stored) ? stored : []) {
-    if (!meta?.id) continue;
+  const restored = (Array.isArray(stored) ? stored : []).filter((m) => m?.id).sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
+  for (const meta of restored) {
     const item = { meta, torrent: null };
     items.set(meta.id, item);
     try {
       // Tamamlananlar yeniden açılmaz; dosyaları taşınmış olsa bile tekrar indirilmez.
       // Seçim bekleyen (picking) indirme kullanıcı dosya seçene kadar açılmaz.
-      if (!['paused', 'done', 'error', 'picking'].includes(meta.status)) attach(item);
+      if (!['paused', 'done', 'error', 'picking'].includes(meta.status)) startOrQueue(item);
       else if (meta.status === 'done' && shouldSeed() && complete(meta)) attach(item, { seed: true });
     } catch (err) {
       meta.status = 'error';
@@ -406,7 +437,7 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
         fs.mkdirSync(meta.path, { recursive: true });
         const item = { meta, torrent: null };
         items.set(meta.id, item);
-        attach(item);
+        startOrQueue(item);
         save();
         return snapshot(item);
       }
@@ -423,7 +454,7 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
           item.meta.path = getDownloadDir();
           item.meta.completedAt = null;
           fs.mkdirSync(item.meta.path, { recursive: true });
-          attach(item);
+          startOrQueue(item);
           save();
         }
         return snapshot(item);
@@ -445,7 +476,7 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       fs.mkdirSync(meta.path, { recursive: true });
       const item = { meta, torrent: null };
       items.set(meta.id, item);
-      attach(item);
+      startOrQueue(item);
       save();
       return snapshot(item);
     },
@@ -479,8 +510,8 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       else item.meta.selectedIndexes = indexes;
       delete item.meta.pickFiles;
       item.meta.completedAt = null;
-      attach(item);
-      item.meta.status = 'downloading';
+      startOrQueue(item);
+      if (item.torrent) item.meta.status = 'downloading';
       save();
       return snapshot(item);
     },
@@ -492,12 +523,14 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       detach(item);
       item.meta.status = 'paused';
       save();
+      pump();
       return snapshot(item);
     },
     resume(id) {
       const item = items.get(id);
       if (!item) return null;
-      if (!item.torrent && item.meta.status !== 'done') attach(item);
+      // Kullanıcı "devam" derse iş sırayı beklemeden başlar.
+      if (!item.torrent && item.meta.status !== 'done') startOrQueue(item, { force: item.meta.status === 'queued' || item.meta.status === 'paused' });
       save();
       return snapshot(item);
     },
@@ -507,6 +540,7 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       detach(item);
       items.delete(id);
       save();
+      pump();
       return true;
     },
     get(id) {
@@ -564,6 +598,12 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       return buf ? { name: best.name, vtt: subtitleToVtt(buf, best.name) } : null;
     },
     stopBrokenSeeds,
+    // Ayar değişince (en fazla eş zamanlı indirme) sırayı yeniden değerlendir.
+    pump,
+    // bayt/sn; 0 sınırsız.
+    throttle(limits) {
+      engine.throttle(limits);
+    },
     async close() {
       clearInterval(seedWatch);
       for (const item of items.values()) {
@@ -572,7 +612,7 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
         item.meta.uploaded = (item.meta.uploaded || 0) + (item.torrent.uploaded || 0);
       }
       save();
-      if (client) await new Promise((r) => client.destroy(() => r()));
+      await engine.destroy();
     },
   };
 }

@@ -71,7 +71,13 @@ export async function startServer({
     shouldSeed: () => settings.get().seedAfterDone === true,
     createClient: createClient || (await defaultClient()),
     onDone: (info) => library.upsert(info),
+    maxActive: () => settings.get().maxActiveDownloads,
   });
+  const applyLimits = () => downloads.throttle({
+    download: settings.get().downloadLimitKbps * 1024,
+    upload: settings.get().uploadLimitKbps * 1024,
+  });
+  applyLimits();
   // Kütüphaneden önceki sürümlerde bitmiş indirmeler de kütüphaneye girsin.
   for (const info of downloads.completed()) if (!library.has(info.infoHash)) library.upsert(info);
   // Yalnızca bu uygulamanın kendi sayfası API'yi çağırabilsin diye oturum anahtarı.
@@ -125,6 +131,8 @@ export async function startServer({
       const seedBefore = settings.get().seedAfterDone;
       settings.update(body);
       if (settings.get().seedAfterDone !== seedBefore) downloads.setSeeding(settings.get().seedAfterDone);
+      applyLimits();
+      downloads.pump();
       return send(res, 200, publicSettings());
     }
     if (route === 'GET /downloads') return send(res, 200, downloads.list());
