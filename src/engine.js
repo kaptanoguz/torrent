@@ -39,6 +39,10 @@ export function createEngine(createClient) {
     selectFiles(torrent, indexes) {
       for (const i of indexes) torrent.files[i]?.select();
     },
+    // Varsayılan "hepsini seç"i geri alır (yalnızca seçili dosyalar insin diye).
+    deselectAll(torrent) {
+      if (torrent.pieces.length) torrent.deselect(0, torrent.pieces.length - 1);
+    },
     selectAll(torrent) {
       if (torrent.pieces.length) torrent.select(0, torrent.pieces.length - 1);
     },

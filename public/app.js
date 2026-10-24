@@ -379,8 +379,8 @@ $('results').addEventListener('click', (e) => {
     const r = state.results.find((x) => x.id === dl.dataset.dl);
     // Kütüphanede afiş, yıl ve tür görünsün diye sonuç bilgileri de gönderilir.
     if (r) {
-      const { magnet, torrentUrl, title, source, year, poster, genres, imdbId, imdbUrl, pageUrl, license } = r;
-      startDownload({ magnet, torrentUrl, title, source, year, poster, genres, imdbId, imdbUrl, pageUrl, license }, dl);
+      const { magnet, torrentUrl, title, source, year, poster, genres, imdbId, imdbUrl, pageUrl, license, category } = r;
+      startDownload({ magnet, torrentUrl, title, source, year, poster, genres, imdbId, imdbUrl, pageUrl, license, category }, dl);
     }
   }
   const open = e.target.closest('[data-open]');
@@ -442,6 +442,7 @@ function activeCard(d) {
     right = [`${formatBytes(d.downloadSpeed) || '0 B'}/sn`, d.timeRemaining != null ? `${formatTime(d.timeRemaining)} kaldı` : '', `${d.peers} bağlantı`].filter(Boolean).join(' · ');
   } else if (d.status === 'error') right = esc(d.error || '');
   else if (d.status === 'picking') right = `${d.fileCount} dosya`;
+  if (d.skippedPrograms && d.status !== 'error') right = [right, `${d.skippedPrograms} program dosyası atlandı`].filter(Boolean).join(' · ');
   const toggle = d.status === 'picking'
     ? '<button class="primary-btn small" type="button" data-act="pick">Dosya seç</button>'
     : d.status === 'queued'
@@ -646,6 +647,8 @@ async function addTorrentFiles(fileList) {
   const infos = await api('torrents/inspect', { method: 'POST', body: JSON.stringify({ files: payload }) });
   infos.forEach((info, i) => {
     if (info.infoHash && imported.some((x) => x.infoHash === info.infoHash)) return;
+    // Film yerine yalnızca program içeren torrent eklenemez.
+    if (info.blocked) info.error = 'Film değil: çalıştırılabilir dosya (.exe gibi) içeriyor. Güvenlik için eklenmez.';
     imported.push({ ...info, data: payload[i].data, checked: !info.error && !info.existing });
   });
   renderImport();
@@ -667,7 +670,7 @@ function renderImport() {
     ].join('');
     const sub = x.error
       ? `<span class="import-error">${esc(x.error)}</span>`
-      : [formatBytes(x.length), x.fileCount > 1 ? `${x.fileCount} dosya` : ''].filter(Boolean).join(' · ');
+      : [formatBytes(x.length), x.fileCount > 1 ? `${x.fileCount} dosya` : '', x.programs ? `${x.programs} program dosyası atlanacak` : ''].filter(Boolean).join(' · ');
     return `<li class="${x.error ? 'is-error' : ''}">
       <label class="check">
         <input type="checkbox" data-i="${i}" ${x.checked ? 'checked' : ''} ${x.error ? 'disabled' : ''} />
@@ -718,7 +721,7 @@ $('import').addEventListener('close', async () => {
     try {
       // Çok dosyalı torrentlerde sırayla hangi dosyaların ineceği sorulur; Vazgeç o torrenti atlar.
       let fileIndexes;
-      if (x.fileCount > 1 && !x.existing) {
+      if ((x.files || []).filter(pickable).length > 1 && !x.existing) {
         fileIndexes = await pickFiles(x.name || x.file, x.files || []);
         if (!fileIndexes) continue;
       }
@@ -751,12 +754,15 @@ window.addEventListener('drop', (e) => {
 
 const awaitingPick = new Set(); // dosya listesi beklenen, bu oturumda başlatılan magnet'ler
 const pickPending = new Set(); // penceresi açık ya da sırada olan indirmeler
-const KIND_LABEL = { video: 'Video', subtitle: 'Altyazı', other: 'Diğer' };
+const KIND_LABEL = { video: 'Video', subtitle: 'Altyazı', other: 'Diğer', program: 'Program · güvenlik için indirilmez' };
+// Program dosyaları (.exe vb.) seçilemez; sunucu da reddeder.
+const pickable = (f) => f.kind !== 'program';
 const filePick = { files: [], selected: new Set() };
 let pickChain = Promise.resolve();
 
 // Varsayılan öneri: en büyük video ve ona uyan altyazı. Video yoksa en büyük dosya.
-function defaultPicks(files) {
+function defaultPicks(all) {
+  const files = all.filter(pickable);
   const largest = (list) => list.reduce((a, b) => (b.length > a.length ? b : a));
   const picks = new Set();
   if (!files.length) return picks;
@@ -774,10 +780,11 @@ function defaultPicks(files) {
 
 function renderFilePick() {
   const { files, selected } = filePick;
+  const choosable = files.filter(pickable).length;
   const size = files.filter((f) => selected.has(f.index)).reduce((n, f) => n + f.length, 0);
   $('file-pick-summary').textContent = `${files.length} dosya · seçilenler ${selected.size} · ${formatBytes(size) || '0 B'}`;
-  $('file-pick-all').checked = files.length > 0 && selected.size === files.length;
-  $('file-pick-all').indeterminate = selected.size > 0 && selected.size < files.length;
+  $('file-pick-all').checked = choosable > 0 && selected.size === choosable;
+  $('file-pick-all').indeterminate = selected.size > 0 && selected.size < choosable;
   $('file-pick-go').disabled = selected.size === 0;
   $('file-pick-go').textContent = selected.size ? 'Seçilenleri indir' : 'İndir';
   for (const input of $('file-pick-list').querySelectorAll('[data-fi]')) input.checked = selected.has(Number(input.dataset.fi));
@@ -791,9 +798,9 @@ function pickFiles(title, files) {
     filePick.selected = defaultPicks(files);
     $('file-pick-name').textContent = title || '';
     $('file-pick-name').title = title || '';
-    $('file-pick-list').innerHTML = files.map((f) => `<li>
+    $('file-pick-list').innerHTML = files.map((f) => `<li class="${pickable(f) ? '' : 'is-error'}">
       <label class="check">
-        <input type="checkbox" data-fi="${f.index}" />
+        <input type="checkbox" data-fi="${f.index}" ${pickable(f) ? '' : 'disabled'} />
         <span class="import-main">
           <span class="import-name" title="${esc(f.path || f.name)}">${esc(f.name)}</span>
           <span class="import-sub">${KIND_LABEL[f.kind] || 'Diğer'} · ${formatBytes(f.length) || '0 B'}</span>
@@ -842,7 +849,7 @@ $('file-pick-list').addEventListener('change', (e) => {
   renderFilePick();
 });
 $('file-pick-all').addEventListener('change', () => {
-  filePick.selected = new Set($('file-pick-all').checked ? filePick.files.map((f) => f.index) : []);
+  filePick.selected = new Set($('file-pick-all').checked ? filePick.files.filter(pickable).map((f) => f.index) : []);
   renderFilePick();
 });
 

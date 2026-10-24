@@ -9,6 +9,12 @@ import { VIDEO_TYPES, playableInBrowser } from './downloads.js';
 
 export const PROGRESS_SAVE_MS = 5000;
 
+// Afişsiz eklenmiş eski Archive kayıtları için Archive'in kendi kapak resmi.
+function posterFromPage(pageUrl) {
+  const m = /^https:\/\/archive\.org\/details\/([^/?#]+)/.exec(pageUrl || '');
+  return m ? `https://archive.org/services/img/${m[1]}` : null;
+}
+
 export function createLibrary({ file, saveDelayMs = PROGRESS_SAVE_MS }) {
   const stored = readJsonSafe(file, {});
   const entries = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
@@ -32,7 +38,7 @@ export function createLibrary({ file, saveDelayMs = PROGRESS_SAVE_MS }) {
 
   function view(entry) {
     const items = entry.items.map(({ path: full, ...item }) => ({ ...item, playableInBrowser: playableInBrowser(item.name), missing: !full || !fs.existsSync(full) }));
-    return { ...entry, items, missing: items.length > 0 && items.every((i) => i.missing) };
+    return { ...entry, poster: entry.poster || posterFromPage(entry.pageUrl), items, missing: items.length > 0 && items.every((i) => i.missing) };
   }
 
   return {

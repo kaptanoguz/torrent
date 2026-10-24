@@ -30,12 +30,35 @@ export function playableInBrowser(name) {
 }
 const SUBTITLE_EXT = new Set(['.srt', '.vtt']);
 
+// Çalıştırılabilir dosyalar: film/dizi diye paylaşılan torrentlerde sık görülen
+// zararlı yazılım hilesi (ör. "Film.2024.1080p.mp4.exe"). Yalnızca Yazılım
+// kategorisinden bilerek indirilen torrentlerde izin verilir.
+const PROGRAM_EXT = new Set([
+  '.exe', '.msi', '.bat', '.cmd', '.com', '.scr', '.pif', '.cpl', '.msc', '.hta', '.reg', '.dll', '.lnk', '.url',
+  '.vbs', '.vbe', '.js', '.jse', '.wsf', '.wsh', '.ps1', '.psm1', '.jar', '.apk', '.sh', '.run', '.appimage', '.deb', '.rpm', '.pkg', '.dmg',
+]);
+
 export const fileKind = (name) => {
   const ext = path.extname(name).toLowerCase();
+  if (PROGRAM_EXT.has(ext)) return 'program';
   if (VIDEO_TYPES[ext]) return 'video';
   if (SUBTITLE_EXT.has(ext)) return 'subtitle';
   return 'other';
 };
+
+export const BLOCKED_MESSAGE = 'Bu torrentte film yerine çalıştırılabilir dosya (.exe gibi) var; güvenlik için indirilmedi.';
+
+// Program dosyaları ayıklanınca geriye ne kalır? Hiç dosya ya da yalnızca
+// yan dosyalar (altyazı, nfo, txt) kalıyorsa torrent sahte kabul edilir.
+// Döner: null (temiz), { blocked: true } ya da { keep: [indeksler], skipped: n }.
+export function screenPrograms(names) {
+  const kinds = names.map(fileKind);
+  const skipped = kinds.filter((k) => k === 'program').length;
+  if (!skipped) return null;
+  const keep = kinds.map((k, i) => (k === 'program' ? -1 : i)).filter((i) => i >= 0);
+  const hasMedia = keep.some((i) => kinds[i] === 'video' || !/\.(srt|vtt|sub|idx|nfo|txt|url|jpg|jpeg|png|gif|md|html?)$/i.test(names[i]));
+  return hasMedia ? { keep, skipped } : { blocked: true };
+}
 
 function describeFiles(torrent) {
   return torrent.files.map((f) => ({ name: f.name, path: f.path, length: f.length }));
@@ -104,6 +127,7 @@ function cleanInfo(r = {}) {
     imdbUrl: url(r.imdbUrl),
     pageUrl: url(r.pageUrl),
     license: str(r.license, 40),
+    category: ['movies', 'tv', 'music', 'books', 'software', 'adult', 'audio', 'texts'].includes(r.category) ? r.category : undefined,
   };
   return Object.fromEntries(Object.entries(info).filter(([, v]) => v !== undefined));
 }
@@ -172,6 +196,27 @@ export function createDownloadManager({
       meta.length = torrent.length;
       meta.files = describeFiles(torrent);
       if (!meta.torrentFile && torrent.torrentFile) meta.torrentFile = Buffer.from(torrent.torrentFile).toString('base64');
+      const screen = !seed && !allowsPrograms(meta) ? screenPrograms(torrent.files.map((f) => f.name)) : null;
+      if (screen?.blocked) {
+        // Sahte "film": hiçbir parça indirilmeden durdurulur.
+        meta.status = 'error';
+        meta.error = BLOCKED_MESSAGE;
+        save();
+        setImmediate(() => { detach(item); pump(); });
+        return;
+      }
+      if (screen) {
+        meta.skippedPrograms = screen.skipped;
+        // Seçim sorulacaksa program dosyaları pencerede pasif görünür; değilse
+        // seçimden çıkarılır ve yalnızca kalan dosyalar iner.
+        if (!(meta.pickFiles && screen.keep.length > 1)) {
+          if (!partial && !meta.pickFiles) engine.deselectAll(torrent);
+          const allowed = new Set(screen.keep);
+          const chosen = (Array.isArray(meta.selectedIndexes) ? meta.selectedIndexes : screen.keep).filter((i) => allowed.has(i));
+          meta.selectedIndexes = chosen.length ? chosen : screen.keep;
+          delete meta.pickFiles;
+        }
+      }
       if (!seed && Array.isArray(meta.selectedIndexes)) {
         meta.selectedIndexes = meta.selectedIndexes.filter((i) => i < torrent.files.length);
         if (!meta.selectedIndexes.length) delete meta.selectedIndexes;
@@ -251,6 +296,11 @@ export function createDownloadManager({
     return path.join(meta.path, f.path);
   }
 
+  // Yalnızca Yazılım kategorisinden bilerek indirilen torrentte program dosyası iner.
+  function allowsPrograms(meta) {
+    return meta.info?.category === 'software';
+  }
+
   function isSelected(meta, index) {
     return !Array.isArray(meta.selectedIndexes) || meta.selectedIndexes.includes(index);
   }
@@ -324,6 +374,7 @@ export function createDownloadManager({
       key: meta.magnet || meta.torrentUrl || `infohash:${meta.infoHash}`,
       infoHash: meta.infoHash || null,
       fileCount: (meta.files || []).length,
+      skippedPrograms: meta.skippedPrograms || 0,
       title: meta.title || meta.name || 'İndirme',
       name: meta.name || null,
       source: meta.source || null,
@@ -403,6 +454,9 @@ export function createDownloadManager({
         fileCount: t.files.length,
         files: t.files.slice(0, 500).map((f, index) => ({ index, name: f.name, path: f.path, length: f.length, kind: fileKind(f.name) })),
         private: Boolean(t.private),
+        // Film yerine yalnızca program içeren (sahte) torrent.
+        blocked: Boolean(screenPrograms(t.files.map((f) => f.name))?.blocked),
+        programs: t.files.filter((f) => fileKind(f.name) === 'program').length,
         existing: existing ? snapshot(existing).status : null,
       };
     },
@@ -414,22 +468,36 @@ export function createDownloadManager({
       const info = cleanInfo(rest);
       const indexes = fileIndexes == null ? null : cleanIndexes(fileIndexes);
       if (torrentFile) {
-        const info = await this.inspect(torrentFile);
-        const found = [...items.values()].find((i) => i.meta.infoHash === info.infoHash);
+        const t = await this.inspect(torrentFile);
+        const found = [...items.values()].find((i) => i.meta.infoHash === t.infoHash);
         if (found) return snapshot(found);
-        if (indexes && indexes.some((i) => i >= info.fileCount)) throw new Error('Geçersiz dosya seçimi.');
+        if (indexes && indexes.some((i) => i >= t.fileCount)) throw new Error('Geçersiz dosya seçimi.');
+        // Program dosyaları (.exe vb.) ayıklanır; geriye film kalmıyorsa hiç eklenmez.
+        let chosen = indexes;
+        let skippedPrograms;
+        if (info.category !== 'software') {
+          const screen = screenPrograms(t.files.map((f) => f.name));
+          if (screen?.blocked) throw new Error(BLOCKED_MESSAGE);
+          if (screen) {
+            const allowed = new Set(screen.keep);
+            chosen = (indexes || screen.keep).filter((i) => allowed.has(i));
+            if (!chosen.length) throw new Error('Seçilen dosyalar çalıştırılabilir dosya; güvenlik için indirilmez.');
+            skippedPrograms = screen.skipped;
+          }
+        }
         const meta = {
           id: crypto.randomUUID(),
-          title: title || info.name,
+          title: title || t.name,
           source: source || 'Torrent dosyası',
           info,
           magnet: null,
           torrentUrl: null,
           torrentFile: Buffer.from(torrentFile, 'base64').toString('base64'),
-          infoHash: info.infoHash,
-          name: info.name,
-          length: info.length,
-          ...(indexes && indexes.length < info.fileCount ? { selectedIndexes: indexes } : {}),
+          infoHash: t.infoHash,
+          name: t.name,
+          length: t.length,
+          ...(chosen && chosen.length < t.fileCount ? { selectedIndexes: chosen } : {}),
+          ...(skippedPrograms ? { skippedPrograms } : {}),
           path: getDownloadDir(),
           status: 'connecting',
           addedAt: Date.now(),
@@ -505,6 +573,9 @@ export function createDownloadManager({
       const count = (item.meta.files || []).length;
       if (!count) throw new Error('Dosya listesi henüz gelmedi.');
       if (indexes.some((i) => i >= count)) throw new Error('Geçersiz dosya seçimi.');
+      if (!allowsPrograms(item.meta) && indexes.some((i) => fileKind(item.meta.files[i].name) === 'program')) {
+        throw new Error('Çalıştırılabilir dosyalar (.exe gibi) güvenlik için indirilmez.');
+      }
       detach(item);
       if (indexes.length === count) delete item.meta.selectedIndexes;
       else item.meta.selectedIndexes = indexes;
