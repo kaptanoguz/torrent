@@ -60,3 +60,28 @@ test('çöken oturumdan kalan qBittorrent kapatılır, yenisi aynı profille aç
     await qb.stop();
   }
 });
+
+test('Jackett bağlantısı magnet\'e yönlendirirse magnet kullanılır; 4xx kalıcı hata sayılır', async () => {
+  const { fetchTorrentSource } = await import('../src/qbittorrent.js');
+  const { isTransientError } = await import('../src/downloads.js');
+  const http = await import('node:http');
+  const magnet = `magnet:?xt=urn:btih:${hash}&dn=Film`;
+  const server = http.createServer((req, res) => {
+    if (req.url === '/dl/magnet') { res.writeHead(302, { Location: magnet }); return res.end(); }
+    if (req.url === '/dl/zincir') { res.writeHead(301, { Location: '/dl/dosya' }); return res.end(); }
+    if (req.url === '/dl/dosya') { res.writeHead(200); return res.end('d4:infod4:name1:xee'); }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    assert.deepEqual(await fetchTorrentSource(`${base}/dl/magnet`), { magnet });
+    assert.equal((await fetchTorrentSource(`${base}/dl/zincir`)).buf.toString(), 'd4:infod4:name1:xee');
+    const err = await fetchTorrentSource(`${base}/dl/yok`).catch((e) => e);
+    assert.match(err.message, /HTTP 404/);
+    assert.equal(isTransientError(err.message), false, '404 yeniden denenmez');
+  } finally {
+    server.close();
+  }
+});
