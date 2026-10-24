@@ -92,6 +92,8 @@ Linux’ta uygulama menüsüne simgesiyle eklemek için bir kez şunu çalışt�
 npm run kisayol    # "Torrent Bul" menüde ve görev çubuğunda kendi simgesiyle görünür
 ```
 
+Dock’ta simge bulanık görünüyorsa komutu yeniden çalıştır: vektör simgeyi ve her boyutu kurar.
+
 ![Torrent Bul simgesi farklı boyutlarda](docs/simge.png)
 
 Windows ve macOS’ta [qbittorrent.org](https://www.qbittorrent.org/download)’dan normal sürümü kurman yeterli; Torrent Bul onu tepsiye küçültülmüş açar. Linux’ta `qbittorrent-nox` yoksa masaüstü `qbittorrent` da kullanılır. Başka bir yerde kuruluysa yolunu `QBITTORRENT_BIN` ortam değişkeniyle verebilirsin.
