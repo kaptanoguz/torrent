@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createSettingsStore } from './settings.js';
-import { createDownloadManager } from './downloads.js';
+import { createDownloadManager, subtitleToVtt, MAX_SUBTITLE_BYTES } from './downloads.js';
 import { activeProviders, searchAll } from './search.js';
 import { createLibrary } from './library.js';
 import { createRatingsCache } from './ratings.js';
@@ -129,6 +129,16 @@ export async function startServer({
     }
     if (route === 'GET /downloads') return send(res, 200, downloads.list());
     if (route === 'GET /library') return send(res, 200, library.list());
+    // Kullanıcının seçtiği yerel altyazıyı yalnızca VTT'ye çevirir; diske yazılmaz.
+    if (route === 'POST /subtitles/preview') {
+      const body = await readJson(req);
+      const name = String(body.name || 'altyazi.srt');
+      const buf = Buffer.from(String(body.data || ''), 'base64');
+      if (!/\.(srt|vtt)$/i.test(name)) return send(res, 400, { error: 'Yalnızca .srt ya da .vtt dosyası.' });
+      if (!buf.length) return send(res, 400, { error: 'Altyazı dosyası boş.' });
+      if (buf.length > MAX_SUBTITLE_BYTES) return send(res, 400, { error: 'Altyazı dosyası 1 MB’tan büyük olamaz.' });
+      return send(res, 200, { name, vtt: subtitleToVtt(buf, name) });
+    }
     if (req.method === 'PUT' && parts[1] === 'library' && parts[3] === 'progress' && !parts[4]) {
       const out = library.progress(parts[2], await readJson(req));
       return out ? send(res, 200, out) : send(res, 404, { error: 'Kütüphanede yok.' });
@@ -196,11 +206,11 @@ export async function startServer({
   }
 
   // <video> ve <track> özel başlık gönderemediği için anahtar adreste taşınır.
-  function serveMedia(req, res, url) {
+  async function serveMedia(req, res, url) {
     const [, , id, index, extra] = url.pathname.split('/'); // /media/:id/:index[/subtitle.vtt]
     if (url.searchParams.get('t') !== token) return send(res, 403, { error: 'Yetkisiz istek.' });
     if (extra === 'subtitle.vtt') {
-      const sub = id.startsWith('lib-') ? null : downloads.subtitleFor(id, Number(index));
+      const sub = id.startsWith('lib-') ? null : await downloads.subtitleFor(id, Number(index)).catch(() => null);
       if (!sub) return send(res, 404, { error: 'Altyazı yok.' });
       res.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(sub.vtt);
@@ -232,7 +242,7 @@ export async function startServer({
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    if (url.pathname.startsWith('/media/')) return serveMedia(req, res, url);
+    if (url.pathname.startsWith('/media/')) return serveMedia(req, res, url).catch(() => res.destroy());
     if (!url.pathname.startsWith('/api/')) return serveStatic(req, res, url);
     if (req.headers['x-app-token'] !== token) return send(res, 403, { error: 'Yetkisiz istek.' });
     try {

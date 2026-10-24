@@ -845,7 +845,36 @@ $('file-pick-all').addEventListener('change', () => {
 
 /* ---------- Oynatıcı ---------- */
 
-const player = { id: null, index: null, infoHash: null, videos: [], lastSent: 0 };
+const player = { id: null, index: null, infoHash: null, videos: [], lastSent: 0, localSub: null };
+const RATES = ['0.75', '1', '1.25', '1.5', '2'];
+const savedRate = store.get('playbackRate', '1');
+$('player-rate').value = RATES.includes(savedRate) ? savedRate : '1';
+
+function applyRate() {
+  const video = $('player-video');
+  video.defaultPlaybackRate = video.playbackRate = Number($('player-rate').value);
+}
+
+// Süre bilinmiyorsa (akış henüz başlarken) duration gelene kadar bekle.
+function seekWhenReady(video, seconds) {
+  const seek = () => {
+    if (!Number.isFinite(video.duration)) return false;
+    video.currentTime = Math.min(seconds, Math.max(0, video.duration - 1));
+    return true;
+  };
+  video.addEventListener('loadedmetadata', () => {
+    if (seek()) return;
+    const onChange = () => { if (seek()) video.removeEventListener('durationchange', onChange); };
+    video.addEventListener('durationchange', onChange);
+  }, { once: true });
+}
+
+// Kütüphanede bu dosya için kayıtlı konum (izlendiyse ya da bitmek üzereyse baştan).
+function savedPosition(infoHash, index) {
+  const item = state.library.find((e) => e.infoHash === infoHash)?.items.find((i) => i.fileIndex === index);
+  if (!item || item.watched || (item.durationSec && item.durationSec - item.positionSec < 20)) return 0;
+  return item.positionSec || 0;
+}
 
 function mediaUrl(id, index, suffix = '') {
   return `/media/${encodeURIComponent(id)}/${index}${suffix}?t=${encodeURIComponent(TOKEN)}`;
@@ -873,14 +902,15 @@ function loadVideo(id, index, startAt = 0) {
   if (player.videos.find((v) => v.index === index)?.playableInBrowser === false) {
     return showPlayerError('Bu biçim yerleşik oynatıcıda açılmıyor.');
   }
-  // Altyazı yalnızca biten indirmelerde aranır; yoksa istek 404 döner ve iz yok sayılır.
-  if (d?.status === 'done') {
-    const track = Object.assign(document.createElement('track'), { kind: 'subtitles', label: 'Altyazı', srclang: 'tr', src: mediaUrl(id, index, '/subtitle.vtt'), default: true });
-    video.append(track);
-  }
+  // Altyazı indirme sürerken de istenir; yoksa istek 404 döner, iz sessizce yok sayılır.
+  const track = Object.assign(document.createElement('track'), { kind: 'subtitles', label: 'Altyazı', srclang: 'tr', src: mediaUrl(id, index, '/subtitle.vtt'), default: !player.localSub });
+  video.append(track);
+  if (player.localSub) video.append(localTrack());
   video.src = mediaUrl(id, index);
+  applyRate();
+  video.addEventListener('loadedmetadata', applyRate, { once: true });
   // Kaldığı yerden devam: süre bilinince konuma atla.
-  if (startAt > 0) video.addEventListener('loadedmetadata', () => { video.currentTime = startAt; }, { once: true });
+  if (startAt > 0) seekWhenReady(video, startAt);
   $('player-hint').hidden = !d || d.status === 'done';
   $('player-hint').textContent = 'İndirme sürüyor: henüz inmeyen kısımlara atlamak biraz bekletebilir.';
   video.play().catch(() => {});
@@ -903,7 +933,7 @@ function openPlayer(id, { entry, index, startAt = 0 } = {}) {
     || (videos.length > 1 ? videos.find((v) => v.playableInBrowser) || videos[0] : d ? mainVideo(d) : videos[0]);
   $('player-episode').value = String(first.index);
   if (!$('player').open) $('player').showModal();
-  loadVideo(id, first.index, first.index === index ? startAt : 0);
+  loadVideo(id, first.index, first.index === index ? startAt : savedPosition(player.infoHash, first.index));
 }
 
 // İzleme konumunu kütüphaneye yaz (en fazla 5 sn'de bir; kapanışta ve bitişte hemen).
@@ -917,9 +947,33 @@ function sendProgress(extra = {}, force = false) {
   api(`library/${player.infoHash}/progress`, { method: 'PUT', body: JSON.stringify(body) }).catch(() => {});
 }
 
+function localTrack() {
+  return Object.assign(document.createElement('track'), { kind: 'subtitles', label: player.localSub.name, srclang: 'tr', src: player.localSub.url, default: true });
+}
+
+// Yerel .srt/.vtt: sunucu yalnızca VTT'ye çevirir, dosya bu oturumda kalır.
+async function loadLocalSubtitle(file) {
+  if (file.size > 1024 * 1024) return toast('Altyazı dosyası 1 MB’tan büyük olamaz.', 'error');
+  try {
+    const { vtt } = await api('subtitles/preview', { method: 'POST', body: JSON.stringify({ name: file.name, data: await readAsBase64(file) }) });
+    if (player.localSub) URL.revokeObjectURL(player.localSub.url);
+    player.localSub = { name: file.name, url: URL.createObjectURL(new Blob([vtt], { type: 'text/vtt' })) };
+    const video = $('player-video');
+    for (const t of video.querySelectorAll('track')) t.default = false;
+    for (const tt of video.textTracks) tt.mode = 'disabled';
+    video.append(localTrack());
+    const added = video.textTracks[video.textTracks.length - 1];
+    if (added) added.mode = 'showing';
+    toast('Altyazı yüklendi');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 function closePlayer() {
   const video = $('player-video');
   if (video.getAttribute('src')) sendProgress({}, true);
+  if (player.localSub) { URL.revokeObjectURL(player.localSub.url); player.localSub = null; }
   video.pause();
   video.removeAttribute('src');
   video.replaceChildren();
@@ -934,7 +988,22 @@ function openExternal() {
     .catch((err) => toast(err.message, 'error'));
 }
 
-$('player-episode').addEventListener('change', () => loadVideo(player.id, Number($('player-episode').value)));
+$('player-episode').addEventListener('change', () => {
+  // Bölüm değişirken eskisinin konumu yazılır, yenisi kaldığı yerden açılır.
+  if ($('player-video').getAttribute('src')) sendProgress({}, true);
+  const index = Number($('player-episode').value);
+  loadVideo(player.id, index, savedPosition(player.infoHash, index));
+});
+$('player-rate').addEventListener('change', () => {
+  store.set('playbackRate', $('player-rate').value);
+  applyRate();
+});
+$('player-sub-btn').addEventListener('click', () => $('player-sub-file').click());
+$('player-sub-file').addEventListener('change', (e) => {
+  const [file] = e.target.files;
+  e.target.value = '';
+  if (file) loadLocalSubtitle(file);
+});
 $('player-video').addEventListener('error', () => {
   if (!$('player-video').getAttribute('src')) return;
   showPlayerError('Bu dosya dahili oynatıcıda açılamıyor.');

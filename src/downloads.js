@@ -54,6 +54,20 @@ export function subtitleToVtt(buf, name) {
 
 const SEED_CHECK_MS = 2000;
 
+export const MAX_SUBTITLE_BYTES = 1024 * 1024;
+const SUBTITLE_WAIT_MS = 20000;
+
+// Akışı belleğe okur; süre dolarsa null (oynatıcı altyazısız devam eder).
+function readStream(stream, timeoutMs) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    const timer = setTimeout(() => { stream.destroy(); resolve(null); }, timeoutMs);
+    stream.on('data', (c) => chunks.push(c));
+    stream.on('end', () => { clearTimeout(timer); resolve(Buffer.concat(chunks)); });
+    stream.on('error', () => { clearTimeout(timer); resolve(null); });
+  });
+}
+
 // İstemciden gelen dosya indekslerini doğrular: boş olmayan, tekrarsız, sıralı tamsayılar.
 function cleanIndexes(list) {
   if (!Array.isArray(list) || !list.length) throw new Error('En az bir dosya seçin.');
@@ -524,22 +538,30 @@ export function createDownloadManager({ stateFile, getDownloadDir, createClient,
       return { name: f.name, size: fs.statSync(full).size, type, path: full, stream: (opts) => fs.createReadStream(full, opts) };
     },
     // Videoya en uygun altyazı: aynı adlı .srt, yoksa Türkçe olanı, yoksa ilki.
-    subtitleFor(id, index) {
+    // İndirme bitmeden de çalışır: dosya diskte tamsa okunur; değilse ve torrent
+    // açıksa altyazı küçük olduğu için akış üzerinden (öncelikli) indirilir.
+    async subtitleFor(id, index, { timeoutMs = SUBTITLE_WAIT_MS } = {}) {
       const item = items.get(id);
       const files = item?.meta.files || [];
       const video = files[index];
-      if (!video || item.meta.status !== 'done') return null;
+      if (!video) return null;
+      const live = item.torrent && !item.torrent.destroyed ? item.torrent : null;
+      const onDisk = (f) => {
+        try { return fs.statSync(filePath(item.meta, f)).size === f.length; } catch { return false; }
+      };
       const base = video.name.replace(/\.[^.]+$/, '').toLowerCase();
       const subs = files
-        .map((f, i) => ({ ...f, i }))
-        .filter((f) => fileKind(f.name) === 'subtitle' && fs.existsSync(filePath(item.meta, f)));
+        .map((f, i) => ({ ...f, i, ready: onDisk(f) }))
+        .filter((f) => fileKind(f.name) === 'subtitle' && f.length <= MAX_SUBTITLE_BYTES && (f.ready || live?.files?.[f.i]));
       const score = (f) => {
         const n = f.name.toLowerCase();
-        return (n.startsWith(base) ? 4 : 0) + (/(^|[^a-z])(tr|tur|turkish|türkçe|turkce)([^a-z]|$)/.test(n) ? 2 : 0);
+        return (n.startsWith(base) ? 4 : 0) + (/(^|[^a-z])(tr|tur|turkish|türkçe|turkce)([^a-z]|$)/.test(n) ? 2 : 0) + (f.ready ? 0.5 : 0);
       };
       const best = subs.sort((a, b) => score(b) - score(a))[0];
       if (!best) return null;
-      return { name: best.name, vtt: subtitleToVtt(fs.readFileSync(filePath(item.meta, best)), best.name) };
+      if (best.ready) return { name: best.name, vtt: subtitleToVtt(fs.readFileSync(filePath(item.meta, best)), best.name) };
+      const buf = await readStream(live.files[best.i].createReadStream(), timeoutMs);
+      return buf ? { name: best.name, vtt: subtitleToVtt(buf, best.name) } : null;
     },
     stopBrokenSeeds,
     async close() {

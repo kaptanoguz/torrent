@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="app-token" content="__APP_TOKEN__" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https:; style-src 'self'; script-src 'self'; connect-src 'self'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https:; style-src 'self'; script-src 'self'; connect-src 'self'; media-src 'self' blob:" />
   <title>Torrent Bul</title>
   <link rel="icon" href="icon.svg" />
   <link rel="stylesheet" href="styles.css" />
@@ -187,6 +187,19 @@
         </label>
       </div>
       <div class="player-actions">
+        <label class="select compact">
+          <span class="select-label">Hız</span>
+          <select id="player-rate" aria-label="Oynatma hızı">
+            <option value="0.75">0,75×</option>
+            <option value="1">1×</option>
+            <option value="1.25">1,25×</option>
+            <option value="1.5">1,5×</option>
+            <option value="2">2×</option>
+          </select>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </label>
+        <button class="ghost-btn small" type="button" id="player-sub-btn">Altyazı yükle</button>
+        <input type="file" id="player-sub-file" accept=".srt,.vtt" hidden />
         <button class="ghost-btn small" type="button" id="player-external">Harici oynatıcıda aç</button>
         <button class="icon-btn" type="button" id="player-close" aria-label="Kapat">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
