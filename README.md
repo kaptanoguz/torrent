@@ -91,6 +91,8 @@ Linux’ta uygulama menüsüne simgesiyle eklemek için bir kez şunu çalışt�
 npm run kisayol    # "Torrent Bul" menüde ve görev çubuğunda kendi simgesiyle görünür
 ```
 
+![Torrent Bul simgesi farklı boyutlarda](docs/simge.png)
+
 Tarayıcıda çalıştırmak istersen:
 
 ```bash
