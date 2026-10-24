@@ -5,6 +5,7 @@
   "description": "Konu, tür ya da film adıyla torrent bulup tek tıkla indiren sade masaüstü uygulaması.",
   "type": "module",
   "main": "electron/main.js",
+  "desktopName": "torrent-bul.desktop",
   "license": "MIT",
   "author": "kaptanoguz",
   "repository": {
@@ -18,6 +19,7 @@
   "scripts": {
     "start": "electron .",
     "web": "node bin/web.js",
+    "kisayol": "node bin/kisayol.js",
     "test": "node --test --test-force-exit",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",
