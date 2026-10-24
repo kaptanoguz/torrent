@@ -56,13 +56,15 @@ export function parseTorznab(xml, sourceName) {
   }).filter((r) => r.title && (r.magnet || r.torrentUrl));
 }
 
+export const TIMEOUT_MS = 12000;
+
 export function createTorznabProvider({ id, name, url, apiKey }) {
   return {
     id,
     name: name || 'Torznab',
     description: 'Kendi indeksleyiciniz (Jackett / Prowlarr).',
     configurable: true,
-    async search({ query = '', category = 'all', genre = '' }, { fetch: fetchImpl = fetch } = {}) {
+    async search({ query = '', category = 'all', genre = '' }, { fetch: fetchImpl = fetch, timeoutMs = TIMEOUT_MS } = {}) {
       const terms = [query.trim(), genreTerms(genre)[1] || ''].filter(Boolean).join(' ');
       if (!terms) return [];
       const run = async (q) => {
@@ -72,13 +74,20 @@ export function createTorznabProvider({ id, name, url, apiKey }) {
         if (apiKey) endpoint.searchParams.set('apikey', apiKey);
         const cats = (CATEGORIES[category] || CATEGORIES.all).torznab;
         if (cats.length) endpoint.searchParams.set('cat', cats.join(','));
-        const res = await fetchImpl(endpoint);
+        const res = await fetchImpl(endpoint, { signal: AbortSignal.timeout(timeoutMs) });
         if (!res.ok) throw new Error(`${name || 'Torznab'} ${res.status}`);
         return parseTorznab(await res.text(), name || 'Torznab');
       };
-      // Türkçe sürümleri yakalamak için ek bir "türkçe" araması yapılır.
-      const [tr, all] = await Promise.all([run(`${terms} turkce`).catch(() => []), run(terms)]);
-      return [...tr, ...all];
+      // Asıl sorguya ek olarak Türkçe sürümler de denenir; ek sorgu hata verirse
+      // asıl sonuçlar yine döner. Aynı infohash iki listede varsa tek kayıt kalır.
+      const [all, tr] = await Promise.all([run(terms), run(`${terms} türkçe`).catch(() => [])]);
+      const seen = new Set();
+      return [...all, ...tr].filter((r) => {
+        const key = r.infoHash || r.magnet || r.torrentUrl;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     },
   };
 }

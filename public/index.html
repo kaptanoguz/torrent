@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="app-token" content="__APP_TOKEN__" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https:; style-src 'self'; script-src 'self'; connect-src 'self'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https:; style-src 'self'; script-src 'self'; connect-src 'self'; media-src 'self' blob:" />
   <title>Torrent Bul</title>
   <link rel="icon" href="icon.svg" />
   <link rel="stylesheet" href="styles.css" />
@@ -43,6 +43,11 @@
         </label>
         <button class="primary-btn" type="submit" id="search-btn">Ara</button>
       </form>
+    </section>
+
+    <section class="library" id="library" aria-labelledby="library-title" hidden>
+      <h2 class="section-label" id="library-title">Kütüphanen</h2>
+      <ul class="library-strip" id="library-list"></ul>
     </section>
 
     <section class="browse" id="browse" aria-labelledby="browse-title">
@@ -93,19 +98,124 @@
     <div class="drawer-head">
       <h2>İndirmeler</h2>
       <div class="drawer-head-actions">
+        <button class="ghost-btn small" id="import-btn" type="button" title="Bilgisayarındaki .torrent dosyalarını ekle">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          Torrent ekle
+        </button>
         <button class="ghost-btn small" id="open-dir-btn" type="button">Klasörü aç</button>
         <button class="icon-btn" id="drawer-close" type="button" aria-label="Kapat">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
         </button>
       </div>
     </div>
-    <ul class="downloads" id="downloads"></ul>
+    <div class="tabs" role="tablist" aria-label="İndirme listeleri">
+      <button type="button" role="tab" id="tab-active" data-tab="active" aria-selected="true" aria-controls="downloads">İndiriliyor <span class="count" id="count-active">0</span></button>
+      <button type="button" role="tab" id="tab-done" data-tab="done" aria-selected="false" aria-controls="downloads">Tamamlanan <span class="count" id="count-done">0</span></button>
+    </div>
+    <ul class="downloads" id="downloads" role="tabpanel"></ul>
     <div class="empty" id="downloads-empty">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-      <p>Henüz indirme yok.<br />Bir sonuçta <strong>İndir</strong>’e basman yeterli.</p>
+      <p id="downloads-empty-text"></p>
     </div>
   </aside>
   <div class="scrim" id="scrim" hidden></div>
+
+  <input type="file" id="import-files" accept=".torrent,application/x-bittorrent" multiple hidden />
+  <input type="file" id="import-folder" webkitdirectory multiple hidden />
+  <div class="drop-overlay" id="drop-overlay" hidden>
+    <div><strong>.torrent dosyalarını bırak</strong><span>Hepsi listelenecek, istediklerini seçip indirebilirsin.</span></div>
+  </div>
+
+  <dialog class="modal import" id="import">
+    <form method="dialog" id="import-form">
+      <div class="modal-head">
+        <h2>Torrent dosyaları ekle</h2>
+        <button class="icon-btn" value="cancel" aria-label="Kapat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="import-pick" id="import-pick">
+        <p>Bilgisayarındaki <strong>.torrent</strong> dosyalarını seç ya da bir klasörün içindekilerin hepsini al. Dosyaları bu pencereye sürükleyip bırakabilirsin de.</p>
+        <div class="import-pick-actions">
+          <button class="primary-btn" type="button" id="pick-files">Dosyaları seç</button>
+          <button class="ghost-btn" type="button" id="pick-folder">Klasör seç</button>
+        </div>
+      </div>
+      <div class="import-list-wrap" id="import-list-wrap" hidden>
+        <div class="import-list-head">
+          <label class="check"><input type="checkbox" id="import-all" checked /> <span id="import-summary"></span></label>
+          <button class="ghost-btn small" type="button" id="pick-more">+ Daha fazla ekle</button>
+        </div>
+        <ul class="import-list" id="import-list"></ul>
+      </div>
+      <div class="modal-foot">
+        <button class="ghost-btn" value="cancel">Vazgeç</button>
+        <button class="primary-btn" value="go" id="import-go" disabled>İndir</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal import" id="file-pick" aria-labelledby="file-pick-title">
+    <form method="dialog">
+      <div class="modal-head">
+        <h2 id="file-pick-title">Hangi dosyalar insin?</h2>
+        <button class="icon-btn" value="cancel" aria-label="Kapat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <p class="file-pick-name" id="file-pick-name"></p>
+      <div class="import-list-head">
+        <label class="check"><input type="checkbox" id="file-pick-all" /> <span>Tümünü seç</span></label>
+        <span id="file-pick-summary"></span>
+      </div>
+      <ul class="import-list" id="file-pick-list"></ul>
+      <div class="modal-foot">
+        <button class="ghost-btn" value="cancel">Vazgeç</button>
+        <button class="primary-btn" value="go" id="file-pick-go">Seçilenleri indir</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="player" id="player" aria-label="Oynatıcı">
+    <div class="player-head">
+      <div class="player-title">
+        <p id="player-title"></p>
+        <label class="select compact" id="player-episode-wrap" hidden>
+          <span class="select-label">Dosya</span>
+          <select id="player-episode"></select>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </label>
+      </div>
+      <div class="player-actions">
+        <label class="select compact">
+          <span class="select-label">Hız</span>
+          <select id="player-rate" aria-label="Oynatma hızı">
+            <option value="0.75">0,75×</option>
+            <option value="1">1×</option>
+            <option value="1.25">1,25×</option>
+            <option value="1.5">1,5×</option>
+            <option value="2">2×</option>
+          </select>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </label>
+        <button class="ghost-btn small" type="button" id="player-sub-btn">Altyazı yükle</button>
+        <input type="file" id="player-sub-file" accept=".srt,.vtt" hidden />
+        <button class="ghost-btn small" type="button" id="player-external">Harici oynatıcıda aç</button>
+        <button class="icon-btn" type="button" id="player-close" aria-label="Kapat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="player-stage">
+      <video id="player-video" controls autoplay playsinline></video>
+      <div class="player-error" id="player-error" hidden>
+        <strong id="player-error-title">Bu dosya dahili oynatıcıda açılamıyor.</strong>
+        <p>Videonun formatı (ör. AVI, HEVC/x265, DTS ses) desteklenmiyor olabilir. Harici oynatıcıda (VLC gibi) açabilirsin.</p>
+        <button class="primary-btn" type="button" id="player-error-external">Harici oynatıcıda aç</button>
+      </div>
+    </div>
+    <p class="player-hint" id="player-hint" hidden></p>
+  </dialog>
 
   <dialog class="modal" id="settings">
     <form method="dialog" id="settings-form">
@@ -119,6 +229,34 @@
       <label class="field">
         <span>İndirme klasörü</span>
         <input id="set-dir" type="text" spellcheck="false" />
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Aynı anda indirme</span>
+          <input id="set-max" type="number" min="1" max="10" step="1" inputmode="numeric" />
+        </label>
+        <label class="field">
+          <span>İndirme sınırı (KB/sn)</span>
+          <input id="set-down" type="number" min="0" step="50" inputmode="numeric" placeholder="0 = sınırsız" />
+        </label>
+        <label class="field">
+          <span>Yükleme sınırı (KB/sn)</span>
+          <input id="set-up" type="number" min="0" step="50" inputmode="numeric" placeholder="0 = sınırsız" />
+        </label>
+      </div>
+      <p class="hint field-row-hint">Fazla indirmeler sıraya girer, biri bitince sıradaki başlar. 0 hız sınırını kaldırır.</p>
+
+      <label class="toggle">
+        <input type="checkbox" id="set-tray" />
+        <span class="toggle-ui" aria-hidden="true"></span>
+        <span><strong>Kapatınca tepside çalışsın</strong><small>Pencereyi kapatınca indirmeler sürer; tepsideki simgeden açıp çıkabilirsin. Yalnızca masaüstü uygulamasında.</small></span>
+      </label>
+
+      <label class="toggle">
+        <input type="checkbox" id="set-seed" />
+        <span class="toggle-ui" aria-hidden="true"></span>
+        <span><strong>Biten indirmeleri paylaşmaya devam et</strong><small>TurkSeed gibi üyelikli sitelerde oranın (ratio) düşmesin diye. Dosyaları taşırsan paylaşım durur, hiçbir şey yeniden inmez.</small></span>
       </label>
 
       <fieldset class="field">

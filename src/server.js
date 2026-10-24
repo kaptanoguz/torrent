@@ -6,8 +6,10 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createSettingsStore } from './settings.js';
-import { createDownloadManager } from './downloads.js';
+import { createDownloadManager, subtitleToVtt, MAX_SUBTITLE_BYTES } from './downloads.js';
 import { activeProviders, searchAll } from './search.js';
+import { createLibrary } from './library.js';
+import { createRatingsCache } from './ratings.js';
 import { CATEGORIES, GENRES } from './categories.js';
 
 const MASK = '••••••';
@@ -47,7 +49,7 @@ async function readJson(req) {
   let raw = '';
   for await (const chunk of req) {
     raw += chunk;
-    if (raw.length > 1e6) throw new Error('İstek çok büyük.');
+    if (raw.length > 25e6) throw new Error('İstek çok büyük.');
   }
   return raw ? JSON.parse(raw) : {};
 }
@@ -61,11 +63,23 @@ export async function startServer({
   fetchImpl = fetch,
 } = {}) {
   const settings = createSettingsStore(path.join(dataDir, 'settings.json'));
+  const library = createLibrary({ file: path.join(dataDir, 'library.json') });
+  const ratingsCache = createRatingsCache(path.join(dataDir, 'omdb-cache.json'));
   const downloads = createDownloadManager({
     stateFile: path.join(dataDir, 'downloads.json'),
     getDownloadDir: () => settings.get().downloadDir,
+    shouldSeed: () => settings.get().seedAfterDone === true,
     createClient: createClient || (await defaultClient()),
+    onDone: (info) => library.upsert(info),
+    maxActive: () => settings.get().maxActiveDownloads,
   });
+  const applyLimits = () => downloads.throttle({
+    download: settings.get().downloadLimitKbps * 1024,
+    upload: settings.get().uploadLimitKbps * 1024,
+  });
+  applyLimits();
+  // Kütüphaneden önceki sürümlerde bitmiş indirmeler de kütüphaneye girsin.
+  for (const info of downloads.completed()) if (!library.has(info.infoHash)) library.upsert(info);
   // Yalnızca bu uygulamanın kendi sayfası API'yi çağırabilsin diye oturum anahtarı.
   const token = crypto.randomBytes(24).toString('hex');
 
@@ -99,7 +113,7 @@ export async function startServer({
       if (!params.query.trim() && !params.genre && params.category !== 'adult') return send(res, 400, { error: 'Bir şey yazın ya da bir tür seçin.' });
       const providers = activeProviders(settings.get());
       if (!providers.length) return send(res, 400, { error: 'Etkin arama kaynağı yok. Ayarlar’dan bir kaynak açın.' });
-      return send(res, 200, await searchAll(params, providers, { fetch: fetchImpl, omdbApiKey: settings.get().omdbApiKey }));
+      return send(res, 200, await searchAll(params, providers, { fetch: fetchImpl, omdbApiKey: settings.get().omdbApiKey, ratingsCache }));
     }
     if (route === 'GET /settings') return send(res, 200, publicSettings());
     if (route === 'PUT /settings') {
@@ -114,21 +128,58 @@ export async function startServer({
         });
       }
       if (body.omdbApiKey === MASK) delete body.omdbApiKey;
+      const seedBefore = settings.get().seedAfterDone;
       settings.update(body);
+      if (settings.get().seedAfterDone !== seedBefore) downloads.setSeeding(settings.get().seedAfterDone);
+      applyLimits();
+      downloads.pump();
       return send(res, 200, publicSettings());
     }
     if (route === 'GET /downloads') return send(res, 200, downloads.list());
+    if (route === 'GET /library') return send(res, 200, library.list());
+    // Kullanıcının seçtiği yerel altyazıyı yalnızca VTT'ye çevirir; diske yazılmaz.
+    if (route === 'POST /subtitles/preview') {
+      const body = await readJson(req);
+      const name = String(body.name || 'altyazi.srt');
+      const buf = Buffer.from(String(body.data || ''), 'base64');
+      if (!/\.(srt|vtt)$/i.test(name)) return send(res, 400, { error: 'Yalnızca .srt ya da .vtt dosyası.' });
+      if (!buf.length) return send(res, 400, { error: 'Altyazı dosyası boş.' });
+      if (buf.length > MAX_SUBTITLE_BYTES) return send(res, 400, { error: 'Altyazı dosyası 1 MB’tan büyük olamaz.' });
+      return send(res, 200, { name, vtt: subtitleToVtt(buf, name) });
+    }
+    if (req.method === 'PUT' && parts[1] === 'library' && parts[3] === 'progress' && !parts[4]) {
+      const out = library.progress(parts[2], await readJson(req));
+      return out ? send(res, 200, out) : send(res, 404, { error: 'Kütüphanede yok.' });
+    }
     if (route === 'POST /downloads') {
       const body = await readJson(req);
-      return send(res, 201, downloads.add(body));
+      return send(res, 201, await downloads.add(body));
+    }
+    if (route === 'POST /torrents/inspect') {
+      const body = await readJson(req);
+      const files = Array.isArray(body.files) ? body.files.slice(0, 500) : [];
+      const out = await Promise.all(files.map(async (f) => {
+        try {
+          return { file: String(f.name || ''), ...(await downloads.inspect(f.data)) };
+        } catch (err) {
+          return { file: String(f.name || ''), error: err.message };
+        }
+      }));
+      return send(res, 200, out);
     }
     if (parts[1] === 'downloads' && parts[2]) {
       const id = parts[2];
       const action = parts[3];
       let out;
-      if (req.method === 'POST' && action === 'pause') out = downloads.pause(id);
+      if (req.method === 'GET' && action === 'files') out = downloads.files(id);
+      else if (req.method === 'POST' && action === 'files') out = downloads.selectFiles(id, (await readJson(req)).indexes);
+      else if (req.method === 'POST' && action === 'pause') out = downloads.pause(id);
       else if (req.method === 'POST' && action === 'resume') out = downloads.resume(id);
-      else if (req.method === 'POST' && action === 'open') {
+      else if (req.method === 'POST' && action === 'open-file') {
+        const file = downloads.openFile(id, Number((await readJson(req)).index));
+        if (file?.path) openPath(file.path);
+        out = file?.path ? { ok: true } : null;
+      } else if (req.method === 'POST' && action === 'open') {
         const folder = downloads.folderOf(id);
         if (folder) openPath(folder);
         out = folder ? { ok: true } : null;
@@ -162,8 +213,44 @@ export async function startServer({
     });
   }
 
+  // <video> ve <track> özel başlık gönderemediği için anahtar adreste taşınır.
+  async function serveMedia(req, res, url) {
+    const [, , id, index, extra] = url.pathname.split('/'); // /media/:id/:index[/subtitle.vtt]
+    if (url.searchParams.get('t') !== token) return send(res, 403, { error: 'Yetkisiz istek.' });
+    if (extra === 'subtitle.vtt') {
+      const sub = id.startsWith('lib-') ? null : await downloads.subtitleFor(id, Number(index)).catch(() => null);
+      if (!sub) return send(res, 404, { error: 'Altyazı yok.' });
+      res.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(sub.vtt);
+    }
+    // "lib-<infohash>": indirme listeden kaldırılmış ama dosya kütüphanede duruyor.
+    const file = id.startsWith('lib-') ? library.openFile(id.slice(4), Number(index)) : downloads.openFile(id, Number(index));
+    if (!file) return send(res, 404, { error: 'Dosya bulunamadı. Taşınmış ya da silinmiş olabilir.' });
+    const headers = { 'Content-Type': file.type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' };
+    const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+    let start = 0;
+    let end = file.size - 1;
+    if (m && (m[1] || m[2])) {
+      if (m[1]) { start = Number(m[1]); if (m[2]) end = Math.min(Number(m[2]), end); }
+      else start = Math.max(0, file.size - Number(m[2])); // "bytes=-500": son 500 bayt
+      if (start > end || start >= file.size) {
+        res.writeHead(416, { 'Content-Range': `bytes */${file.size}` });
+        return res.end();
+      }
+      res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${file.size}`, 'Content-Length': end - start + 1 });
+    } else {
+      res.writeHead(200, { ...headers, 'Content-Length': file.size });
+    }
+    if (req.method === 'HEAD') return res.end();
+    const stream = file.stream({ start, end });
+    stream.on('error', () => res.destroy());
+    res.on('close', () => stream.destroy());
+    stream.pipe(res);
+  }
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    if (url.pathname.startsWith('/media/')) return serveMedia(req, res, url).catch(() => res.destroy());
     if (!url.pathname.startsWith('/api/')) return serveStatic(req, res, url);
     if (req.headers['x-app-token'] !== token) return send(res, 403, { error: 'Yetkisiz istek.' });
     try {
@@ -178,8 +265,12 @@ export async function startServer({
   return {
     url: `http://${host}:${address.port}/`,
     token,
+    getSettings: () => settings.get(),
+    // Masaüstü uygulaması (ör. işletim sisteminden gelen magnet) için.
+    addDownload: (body) => downloads.add(body),
     async close() {
       await downloads.close();
+      library.close();
       await new Promise((r) => server.close(() => r()));
     },
   };
