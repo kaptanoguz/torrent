@@ -1,10 +1,13 @@
-// İsteğe bağlı IMDb puanı: kullanıcı Ayarlar'a ücretsiz bir OMDb API anahtarı
-// girerse film ve dizi sonuçlarına puan, tür ve afiş eklenir.
+// Film ve dizi sonuçlarına IMDb puanı, tür ve afiş eklenir. Ayarlar'da OMDb
+// anahtarı varsa OMDb, yoksa anahtar gerektirmeyen Cinemeta (Stremio'nun açık
+// film/dizi bilgi servisi, IMDb verisi) kullanılır.
 
 import { parseTitle } from './titles.js';
 import { readJsonSafe, writeJsonAtomic } from './jsonfile.js';
 
 const MAX_LOOKUPS = 20;
+const BUDGET_MS = 2500; // arama en fazla bu kadar bekler; geç gelenler önbelleğe yazılır, sonraki aramada hazırdır
+const CINEMETA = 'https://v3-cinemeta.strem.io';
 const MAX_CACHED = 500;
 const FOUND_TTL = 30 * 24 * 3600e3; // bulunan yapım 30 gün
 const MISS_TTL = 6 * 3600e3; // "bulunamadı" 6 saat; yeni çıkan yapımlar sonra bulunabilsin
@@ -78,9 +81,44 @@ async function fetchInfo(fetchImpl, apiKey, result) {
   };
 }
 
+const norm = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
+
+// Cinemeta adla arar; aynı adlı (ve yıl biliniyorsa yılı tutan) ilk yapım seçilir.
+async function fetchCinemeta(fetchImpl, result) {
+  const { name, year: parsedYear, series } = parseTitle(result.title);
+  const year = result.year || parsedYear;
+  const type = series || result.category === 'tv' ? 'series' : 'movie';
+  const get = async (p) => {
+    const res = await fetchImpl(`${CINEMETA}/${p}`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`Cinemeta ${res.status}`);
+    return res.json();
+  };
+  let meta;
+  if (result.imdbId) {
+    meta = (await get(`meta/${type}/${result.imdbId}.json`)).meta;
+  } else {
+    const { metas = [] } = await get(`catalog/${type}/top/search=${encodeURIComponent(name)}.json`);
+    const startYear = (m) => Number.parseInt(m.releaseInfo || m.year, 10) || null;
+    const sameName = metas.filter((m) => norm(m.name) === norm(name));
+    meta = (year && sameName.find((m) => Math.abs((startYear(m) || 0) - year) <= 1))
+      || (!year && sameName[0])
+      || (year && metas.find((m) => startYear(m) === year && norm(m.name).includes(norm(name))));
+    if (meta && !meta.imdbRating) meta = (await get(`meta/${type}/${meta.id || meta.imdb_id}.json`)).meta || meta;
+  }
+  if (!meta || !/^tt\d+$/.test(meta.imdb_id || meta.id || '')) return null;
+  return {
+    imdbId: meta.imdb_id || meta.id,
+    rating: Number(meta.imdbRating) || null,
+    votes: null,
+    genre: Array.isArray(meta.genres) ? meta.genres.join(', ') : Array.isArray(meta.genre) ? meta.genre.join(', ') : '',
+    year: Number.parseInt(meta.releaseInfo || meta.year, 10) || null,
+    poster: /^https:\/\//.test(meta.poster || '') ? meta.poster : null,
+  };
+}
+
 async function lookup(fetchImpl, apiKey, result, cache, key) {
   if (inflight.has(key)) return inflight.get(key);
-  const promise = fetchInfo(fetchImpl, apiKey, result)
+  const promise = (apiKey ? fetchInfo(fetchImpl, apiKey, result) : fetchCinemeta(fetchImpl, result))
     // Her cevap gelir gelmez diske yazılır: arama yarıda kesilse de o tur kaybolmaz.
     .then((value) => { cache.set(key, value); cache.flush(); return value; })
     .catch(() => null)
@@ -89,19 +127,24 @@ async function lookup(fetchImpl, apiKey, result, cache, key) {
   return promise;
 }
 
-export async function addImdbRatings(results, apiKey, { fetch: fetchImpl = fetch, ratingsCache = memoryCache } = {}) {
-  if (!apiKey) return results;
+export async function addImdbRatings(results, apiKey, { fetch: fetchImpl = fetch, ratingsCache = memoryCache, budgetMs = BUDGET_MS } = {}) {
   // Önbellekte olanlar kotadan düşmez; yalnızca gerçekten sorulanlar 20 ile sınırlı.
+  // Anahtarsız kaynağın önbelleği ayrı tutulur; OMDb anahtarı girilince yeniden sorulur.
+  const prefix = apiKey ? '' : 'cm:';
   let lookups = 0;
   const targets = results.filter((r) => r.category === 'movies' || r.category === 'tv');
-  const found = await Promise.all(targets.map((r) => {
-    const key = cacheKey(r);
+  const found = new Array(targets.length).fill(null);
+  const pending = targets.map((r, i) => {
+    const key = prefix + cacheKey(r);
     const cached = ratingsCache.get(key);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) { found[i] = cached; return null; }
     if (lookups >= MAX_LOOKUPS) return null;
     lookups++;
-    return lookup(fetchImpl, apiKey, r, ratingsCache, key);
-  }));
+    return lookup(fetchImpl, apiKey, r, ratingsCache, key).then((v) => { found[i] = v; });
+  }).filter(Boolean);
+  let timer;
+  await Promise.race([Promise.all(pending), new Promise((r) => { timer = setTimeout(r, budgetMs); })]);
+  clearTimeout(timer);
   ratingsCache.flush();
   targets.forEach((r, i) => {
     const info = found[i];

@@ -259,15 +259,30 @@ async function control(api, action, hashes) {
   }
 }
 
-async function fetchTorrentFile(url, fetchImpl) {
-  let res;
-  try {
-    res = await fetchImpl(url, { signal: AbortSignal.timeout(30000) });
-  } catch (err) {
-    throw new Error(`Error downloading torrent: ${err.cause?.code || err.message}`);
+// Torznab/Jackett indirme bağlantıları çoğu zaman bir magnet adresine yönlendirir;
+// fetch magnet'e gidemez ("fetch failed"). Yönlendirmeler elle izlenir, magnet'e
+// varılırsa o kullanılır. Döner: { buf } ya da { magnet }.
+export async function fetchTorrentSource(url, fetchImpl = fetch) {
+  let current = url;
+  for (let hop = 0; hop < 6; hop++) {
+    let res;
+    try {
+      res = await fetchImpl(current, { redirect: 'manual', signal: AbortSignal.timeout(30000) });
+    } catch (err) {
+      throw new Error(`Error downloading torrent: ${err.cause?.code || err.cause?.message || err.message}`);
+    }
+    const location = res.headers.get('location');
+    if (res.status >= 300 && res.status < 400 && location) {
+      if (/^magnet:/i.test(location)) return { magnet: location };
+      current = new URL(location, current).href;
+      continue;
+    }
+    // 4xx kalıcıdır (süresi dolmuş bağlantı, yanlış anahtar); yeniden denemek boşuna.
+    if (res.status >= 400 && res.status < 500) throw new Error(`Torrent bağlantısı açılamadı (HTTP ${res.status}); bağlantının süresi dolmuş ya da API anahtarı yanlış olabilir.`);
+    if (!res.ok) throw new Error(`Error downloading torrent: HTTP ${res.status}`);
+    return { buf: Buffer.from(await res.arrayBuffer()) };
   }
-  if (!res.ok) throw new Error(`Error downloading torrent: HTTP ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
+  throw new Error('Torrent bağlantısı çok fazla yönlendirme yaptı.');
 }
 
 // start(): { api, stop } döndürür; varsayılanı qBittorrent'i profileDir ile başlatmaktır.
@@ -444,7 +459,7 @@ export function createQbEngine({ profileDir, start = () => launchQbittorrent({ p
         let magnet = null;
         if (Buffer.isBuffer(source)) buf = source;
         else if (/^magnet:/i.test(source)) magnet = source;
-        else buf = await fetchTorrentFile(source, fetchImpl);
+        else ({ buf = null, magnet = null } = await fetchTorrentSource(source, fetchImpl));
         const parsed = await parseTorrent(buf || magnet);
         t.infoHash = parsed.infoHash;
         if (buf) t.torrentFile = buf;

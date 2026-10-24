@@ -181,3 +181,54 @@ test('OMDb cevabı arama bitmeden diske yazılır', async () => {
   assert.equal(calls, 0);
   void pending;
 });
+
+test('OMDb anahtarı yoksa Cinemeta\'dan afiş ve IMDb puanı gelir; ad ve yıl eşleşmeli', async () => {
+  const asked = [];
+  const fakeFetch = async (url) => {
+    const u = String(url);
+    asked.push(u);
+    if (u.includes('/catalog/series/top/search=Dopesick.json')) {
+      return new Response(JSON.stringify({ metas: [
+        { id: 'tt9999999', name: 'Dopesick Diaries', releaseInfo: '2019' },
+        { id: 'tt11121604', name: 'Dopesick', releaseInfo: '2021', poster: 'https://images.metahub.space/poster/medium/tt11121604/img' },
+      ] }));
+    }
+    if (u.endsWith('/meta/series/tt11121604.json')) {
+      return new Response(JSON.stringify({ meta: { id: 'tt11121604', name: 'Dopesick', imdbRating: '8.5', genres: ['Drama'], releaseInfo: '2021', poster: 'https://images.metahub.space/poster/medium/tt11121604/img' } }));
+    }
+    if (u.includes('/catalog/movie/top/search=Dune%20Part%20Two.json')) {
+      return new Response(JSON.stringify({ metas: [{ id: 'tt15239678', name: 'Dune: Part Two', releaseInfo: '2024', imdbRating: '8.6', poster: 'https://images.metahub.space/poster/medium/tt15239678/img' }] }));
+    }
+    return new Response(JSON.stringify({ metas: [] }));
+  };
+  const results = [
+    { title: 'Dopesick S01 COMPLETE 1080p HULU 10bit DDP 5 1 x265 [HashMiner]', category: 'tv' },
+    { title: 'Dune.Part.Two.2024.2160p.WEB-DL', category: 'movies' },
+    { title: 'Bilinmeyen Yapim 2031', category: 'movies' },
+  ];
+  await addImdbRatings(results, '', { fetch: fakeFetch, ratingsCache: createRatingsCache(null) });
+  assert.equal(results[0].rating.value, 8.5);
+  assert.equal(results[0].imdbUrl, 'https://www.imdb.com/title/tt11121604/');
+  assert.match(results[0].poster, /tt11121604/);
+  assert.equal(results[1].rating.value, 8.6, 'iki nokta üst üste ve büyük harf farkı eşleşmeyi bozmaz');
+  assert.equal(results[2].rating, undefined);
+  assert.ok(asked.every((u) => u.startsWith('https://v3-cinemeta.strem.io/')));
+});
+
+test('yavaş bilgi servisi aramayı bekletmez; geç gelen cevap sonraki aramada hazırdır', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const fakeFetch = async () => {
+    await gate;
+    return new Response(JSON.stringify({ metas: [{ id: 'tt0013442', name: 'Nosferatu', releaseInfo: '1922', imdbRating: '7.9' }] }));
+  };
+  const cache = createRatingsCache(null);
+  const started = Date.now();
+  const first = await addImdbRatings([{ title: 'Nosferatu (1922)', category: 'movies' }], '', { fetch: fakeFetch, ratingsCache: cache, budgetMs: 100 });
+  assert.ok(Date.now() - started < 1000);
+  assert.equal(first[0].rating, undefined);
+  release();
+  await wait(50);
+  const second = await addImdbRatings([{ title: 'Nosferatu (1922)', category: 'movies' }], '', { fetch: fakeFetch, ratingsCache: cache, budgetMs: 100 });
+  assert.equal(second[0].rating.value, 7.9);
+});

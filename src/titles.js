@@ -9,7 +9,7 @@ export function parseTitle(raw = '') {
   const yearMatch = title.match(/[([\s.](19[0-9]{2}|20[0-9]{2})(?=[)\]\s.]|$)/);
   const year = yearMatch ? Number(yearMatch[1]) : null;
   let cut = title.length;
-  for (const re of [/[([\s.](19|20)\d{2}(?=[)\]\s.]|$)/, /\bS\d{1,2}(E\d{1,3})?\b/i, NOISE, /\s[-–—:]\s/]) {
+  for (const re of [/[([\s.](19|20)\d{2}(?=[)\]\s.]|$)/, /\bS\d{1,2}(E\d{1,3})?\b/i, /\b(season|sezon)\s*\d+/i, /\bcomplete\b/i, NOISE, /\s[-–—:]\s/]) {
     const m = title.match(re);
     if (m && m.index > 0) cut = Math.min(cut, m.index);
   }
