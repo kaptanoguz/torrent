@@ -512,7 +512,8 @@ function doneCard(d) {
 function renderDownloads() {
   const done = state.downloads.filter((d) => d.status === 'done')
     .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
-  const active = state.downloads.filter((d) => d.status !== 'done');
+  // En çok inen en üstte; aynı yüzdedekiler eklenme sırasını korur.
+  const active = state.downloads.filter((d) => d.status !== 'done').sort((a, b) => (b.progress || 0) - (a.progress || 0));
   const running = active.filter((d) => d.status === 'downloading' || d.status === 'connecting').length;
   $('downloads-badge').hidden = !running;
   $('downloads-badge').textContent = running;
