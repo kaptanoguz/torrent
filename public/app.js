@@ -12,6 +12,8 @@ const ICONS = {
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
   star: '<svg viewBox="0 0 24 24" class="star"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg>',
   x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  tv: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="13" rx="2"/><path d="m10.5 9.5 4 2-4 2z"/><path d="M8 21h8"/></svg>',
+  file: '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
 };
 
 const store = {
@@ -275,6 +277,8 @@ function ratingBadge(r) {
 function resultButton(r) {
   const d = findDownload(r);
   if (!d) return `<button class="primary-btn" type="button" data-dl="${esc(r.id)}">İndir</button>`;
+  if (d.status === 'done' && d.missing) return `<button class="primary-btn" type="button" data-dl="${esc(r.id)}" title="Dosyalar bulunamadı">Tekrar indir</button>`;
+  if (d.status === 'done' && d.videos?.length) return `<button class="primary-btn done" type="button" data-watch="${d.id}">İzle</button>`;
   if (d.status === 'done') return `<button class="primary-btn done" type="button" data-open="${d.id}">Aç</button>`;
   if (d.status === 'error') return `<button class="primary-btn" type="button" data-resume="${d.id}">Tekrar dene</button>`;
   if (d.status === 'paused') return `<button class="primary-btn" type="button" data-resume="${d.id}">Devam et</button>`;
@@ -365,7 +369,9 @@ $('results').addEventListener('click', (e) => {
   if (open) api(`downloads/${open.dataset.open}/open`, { method: 'POST' }).catch((err) => toast(err.message, 'error'));
   const resume = e.target.closest('[data-resume]');
   if (resume) api(`downloads/${resume.dataset.resume}/resume`, { method: 'POST' }).then(refreshDownloads).catch((err) => toast(err.message, 'error'));
-  if (e.target.closest('[data-show-downloads]')) openDrawer();
+  const watch = e.target.closest('[data-watch]');
+  if (watch) openPlayer(watch.dataset.watch);
+  if (e.target.closest('[data-show-downloads]')) openDrawer('active');
 });
 
 async function startDownload(body, button) {
@@ -390,35 +396,77 @@ const STATUS = {
   error: 'Hata',
 };
 
-function renderDownloads() {
-  const list = state.downloads;
-  const active = list.filter((d) => d.status === 'downloading' || d.status === 'connecting').length;
-  $('downloads-badge').hidden = !active;
-  $('downloads-badge').textContent = active;
-  $('downloads-empty').hidden = list.length > 0;
-  const html = list.map((d) => {
-    const pct = Math.floor(d.progress * 100);
-    let right = '';
-    if (d.status === 'downloading') {
-      right = [`${formatBytes(d.downloadSpeed) || '0 B'}/sn`, d.timeRemaining != null ? `${formatTime(d.timeRemaining)} kaldı` : '', `${d.peers} bağlantı`].filter(Boolean).join(' · ');
-    } else if (d.status === 'done') right = formatBytes(d.length);
-    else if (d.status === 'error') right = esc(d.error || '');
-    const toggle = d.status === 'paused' || d.status === 'error'
-      ? `<button class="icon-btn" data-act="resume" aria-label="Devam et" title="Devam et">${ICONS.play}</button>`
-      : d.status === 'done' ? '' : `<button class="icon-btn" data-act="pause" aria-label="Duraklat" title="Duraklat">${ICONS.pause}</button>`;
-    return `<li class="dl ${d.status}" data-id="${d.id}">
-      <div class="dl-top">
-        <p class="dl-title" title="${esc(d.title)}">${esc(d.title)}</p>
-        <div class="dl-actions">
-          ${toggle}
-          <button class="icon-btn" data-act="open" aria-label="Klasörde göster" title="Klasörde göster">${ICONS.folder}</button>
-          <button class="icon-btn" data-act="remove" aria-label="Listeden kaldır" title="Listeden kaldır (dosyalar silinmez)">${ICONS.trash}</button>
-        </div>
+state.tab = 'active';
+const seenDone = new Set(); // bildirim bir kez gösterilsin
+let firstLoad = true;
+
+function formatDate(ts) {
+  if (!ts) return '';
+  return new Date(ts).toLocaleString('tr-TR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function activeCard(d) {
+  const pct = Math.floor(d.progress * 100);
+  let right = '';
+  if (d.status === 'downloading') {
+    right = [`${formatBytes(d.downloadSpeed) || '0 B'}/sn`, d.timeRemaining != null ? `${formatTime(d.timeRemaining)} kaldı` : '', `${d.peers} bağlantı`].filter(Boolean).join(' · ');
+  } else if (d.status === 'error') right = esc(d.error || '');
+  const toggle = d.status === 'paused' || d.status === 'error'
+    ? `<button class="icon-btn" data-act="resume" aria-label="Devam et" title="Devam et">${ICONS.play}</button>`
+    : `<button class="icon-btn" data-act="pause" aria-label="Duraklat" title="Duraklat">${ICONS.pause}</button>`;
+  // İndirme sürerken de izlenebilir: WebTorrent izlenen kısmı öne alır.
+  const watch = d.videos?.length && d.status === 'downloading' && d.progress > 0.02
+    ? `<button class="icon-btn" data-act="watch" aria-label="İndirirken izle" title="İndirirken izle">${ICONS.tv}</button>`
+    : '';
+  return `<li class="dl ${d.status}" data-id="${d.id}">
+    <div class="dl-top">
+      <p class="dl-title" title="${esc(d.title)}">${esc(d.title)}</p>
+      <div class="dl-actions">
+        ${watch}${toggle}
+        <button class="icon-btn" data-act="open" aria-label="Klasörde göster" title="Klasörde göster">${ICONS.folder}</button>
+        <button class="icon-btn" data-act="remove" aria-label="Listeden kaldır" title="Listeden kaldır (dosyalar silinmez)">${ICONS.trash}</button>
       </div>
-      <div class="bar"><span data-width="${pct}"></span></div>
-      <div class="dl-stats"><span><span class="state">${STATUS[d.status] || d.status}</span>${d.status !== 'connecting' ? ` · %${pct}` : ''}</span><span>${right}</span></div>
-    </li>`;
-  }).join('');
+    </div>
+    <div class="bar"><span data-width="${pct}"></span></div>
+    <div class="dl-stats"><span><span class="state">${STATUS[d.status] || d.status}</span>${d.status !== 'connecting' ? ` · %${pct}` : ''}</span><span>${right}</span></div>
+  </li>`;
+}
+
+function doneCard(d) {
+  const canPlay = d.videos?.length && !d.missing;
+  const info = d.missing
+    ? '<span class="missing">Dosyalar taşınmış ya da silinmiş</span>'
+    : [formatBytes(d.length), d.videos?.length > 1 ? `${d.videos.length} video` : '', formatDate(d.completedAt)].filter(Boolean).join(' · ');
+  return `<li class="dl done-card${d.missing ? ' is-missing' : ''}" data-id="${d.id}">
+    <button class="play-tile" type="button" data-act="watch" ${canPlay ? '' : 'disabled'} aria-label="İzle" title="${canPlay ? 'Dahili oynatıcıda izle' : d.missing ? 'Dosyalar bulunamadı' : 'Video dosyası yok'}">${canPlay ? ICONS.play : ICONS.file}</button>
+    <div class="dl-body">
+      <p class="dl-title" title="${esc(d.title)}">${esc(d.title)}</p>
+      <p class="dl-sub">${info}</p>
+    </div>
+    <div class="dl-actions">
+      <button class="icon-btn" data-act="open" aria-label="Klasörde göster" title="Klasörde göster">${ICONS.folder}</button>
+      <button class="icon-btn" data-act="remove" aria-label="Listeden kaldır" title="Listeden kaldır (dosyalar silinmez)">${ICONS.trash}</button>
+    </div>
+  </li>`;
+}
+
+function renderDownloads() {
+  const done = state.downloads.filter((d) => d.status === 'done')
+    .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+  const active = state.downloads.filter((d) => d.status !== 'done');
+  const running = active.filter((d) => d.status === 'downloading' || d.status === 'connecting').length;
+  $('downloads-badge').hidden = !running;
+  $('downloads-badge').textContent = running;
+  $('count-active').textContent = active.length;
+  $('count-done').textContent = done.length;
+  for (const t of document.querySelectorAll('.tabs [data-tab]')) t.setAttribute('aria-selected', String(t.dataset.tab === state.tab));
+
+  const list = state.tab === 'done' ? done : active;
+  $('downloads-empty').hidden = list.length > 0;
+  $('downloads-empty-text').innerHTML = state.tab === 'done'
+    ? 'Biten indirmeler burada görünür.<br />Videoları tek tıkla izleyebilirsin.'
+    : 'Şu an süren indirme yok.<br />Bir sonuçta <strong>İndir</strong>’e basman yeterli.';
+  const html = list.map(state.tab === 'done' ? doneCard : activeCard).join('');
 
   // Var olan kartları yerinde güncelle ki ilerleme çubuğu akıcı ilerlesin
   // ve imleç altındaki butonlar her saniye yeniden oluşmasın.
@@ -428,7 +476,10 @@ function renderDownloads() {
   const existing = new Map([...container.children].map((el) => [el.dataset.id, el]));
   const next = [...tpl.content.children].map((fresh) => {
     const old = existing.get(fresh.dataset.id);
-    if (!old || old.className !== fresh.className || old.querySelector('.dl-actions').innerHTML !== fresh.querySelector('.dl-actions').innerHTML) {
+    if (old && old.outerHTML === fresh.outerHTML) return old; // tamamlanan kartlar değişmediyse dokunma
+    const sameShape = old && old.className === fresh.className && old.querySelector('.bar')
+      && old.querySelector('.dl-actions').innerHTML === fresh.querySelector('.dl-actions').innerHTML;
+    if (!sameShape) {
       applyInlineStyles(fresh);
       return fresh;
     }
@@ -439,10 +490,24 @@ function renderDownloads() {
   container.replaceChildren(...next);
 }
 
+function notifyFinished(list) {
+  for (const d of list) {
+    if (d.status !== 'done' || seenDone.has(d.id)) continue;
+    seenDone.add(d.id);
+    if (firstLoad) continue;
+    toast(`İndirme tamamlandı: ${d.title}`);
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') new Notification('İndirme tamamlandı', { body: d.title, icon: 'icon.svg' });
+    } catch { /* bildirim desteklenmiyor */ }
+  }
+  firstLoad = false;
+}
+
 async function refreshDownloads() {
   try {
     const list = await api('downloads');
     state.downloads = list;
+    notifyFinished(list);
     renderDownloads();
     refreshResultButtons();
   } catch {
@@ -450,11 +515,20 @@ async function refreshDownloads() {
   }
 }
 
+document.querySelector('.tabs').addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-tab]');
+  if (!tab) return;
+  state.tab = tab.dataset.tab;
+  $('downloads').replaceChildren();
+  renderDownloads();
+});
+
 $('downloads').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-act]');
   if (!btn) return;
   const id = btn.closest('[data-id]').dataset.id;
   const act = btn.dataset.act;
+  if (act === 'watch') return openPlayer(id);
   try {
     if (act === 'remove') await api(`downloads/${id}`, { method: 'DELETE' });
     else await api(`downloads/${id}/${act}`, { method: 'POST' });
@@ -465,21 +539,91 @@ $('downloads').addEventListener('click', async (e) => {
   }
 });
 
-function openDrawer() {
+function openDrawer(tab) {
+  if (tab) { state.tab = tab; $('downloads').replaceChildren(); renderDownloads(); }
   $('drawer').classList.add('open');
   $('drawer').setAttribute('aria-hidden', 'false');
   $('scrim').hidden = false;
+  // Tamamlanınca masaüstü bildirimi için bir kez izin iste.
+  try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch { /* yok */ }
 }
 function closeDrawer() {
   $('drawer').classList.remove('open');
   $('drawer').setAttribute('aria-hidden', 'true');
   $('scrim').hidden = true;
 }
-$('downloads-btn').addEventListener('click', openDrawer);
+$('downloads-btn').addEventListener('click', () => openDrawer());
 $('drawer-close').addEventListener('click', closeDrawer);
 $('scrim').addEventListener('click', closeDrawer);
 $('open-dir-btn').addEventListener('click', () => api('open-download-dir', { method: 'POST' }).catch((err) => toast(err.message, 'error')));
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('player').open) closeDrawer(); });
+
+/* ---------- Oynatıcı ---------- */
+
+const player = { id: null, index: null };
+
+function mediaUrl(id, index, suffix = '') {
+  return `/media/${encodeURIComponent(id)}/${index}${suffix}?t=${encodeURIComponent(TOKEN)}`;
+}
+
+function loadVideo(id, index) {
+  const video = $('player-video');
+  player.id = id;
+  player.index = index;
+  $('player-error').hidden = true;
+  video.hidden = false;
+  video.replaceChildren();
+  const d = state.downloads.find((x) => x.id === id);
+  // Altyazı yalnızca biten indirmelerde aranır; yoksa istek 404 döner ve iz yok sayılır.
+  if (d?.status === 'done') {
+    const track = Object.assign(document.createElement('track'), { kind: 'subtitles', label: 'Altyazı', srclang: 'tr', src: mediaUrl(id, index, '/subtitle.vtt'), default: true });
+    video.append(track);
+  }
+  video.src = mediaUrl(id, index);
+  $('player-hint').hidden = d?.status === 'done';
+  $('player-hint').textContent = 'İndirme sürüyor: henüz inmeyen kısımlara atlamak biraz bekletebilir.';
+  video.play().catch(() => {});
+}
+
+function openPlayer(id) {
+  const d = state.downloads.find((x) => x.id === id);
+  if (!d?.videos?.length) return toast('Bu indirmede video dosyası yok.', 'error');
+  const videos = [...d.videos].sort((a, b) => a.name.localeCompare(b.name, 'tr', { numeric: true }));
+  $('player-title').textContent = d.title;
+  $('player-episode').innerHTML = videos.map((v) => `<option value="${v.index}">${esc(v.name)}</option>`).join('');
+  $('player-episode-wrap').hidden = videos.length < 2;
+  // Birden çok video varsa (dizi bölümleri) ilki, tek videoda en büyüğü açılır.
+  const first = videos.length > 1 ? videos[0] : d.videos.reduce((a, b) => (b.length > a.length ? b : a));
+  $('player-episode').value = String(first.index);
+  $('player').showModal();
+  loadVideo(id, first.index);
+}
+
+function closePlayer() {
+  const video = $('player-video');
+  video.pause();
+  video.removeAttribute('src');
+  video.replaceChildren();
+  video.load();
+  if ($('player').open) $('player').close();
+}
+
+function openExternal() {
+  api(`downloads/${player.id}/open-file`, { method: 'POST', body: JSON.stringify({ index: player.index }) })
+    .catch(() => api(`downloads/${player.id}/open`, { method: 'POST' }))
+    .catch((err) => toast(err.message, 'error'));
+}
+
+$('player-episode').addEventListener('change', () => loadVideo(player.id, Number($('player-episode').value)));
+$('player-video').addEventListener('error', () => {
+  if (!$('player-video').getAttribute('src')) return;
+  $('player-video').hidden = true;
+  $('player-error').hidden = false;
+});
+$('player-close').addEventListener('click', closePlayer);
+$('player').addEventListener('close', closePlayer);
+$('player-external').addEventListener('click', openExternal);
+$('player-error-external').addEventListener('click', openExternal);
 
 /* ---------- Ayarlar ---------- */
 

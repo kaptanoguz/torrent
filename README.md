@@ -14,12 +14,15 @@ Torrent Bul; Windows, macOS ve Linux’ta çalışan sade bir masaüstü uygulam
 - **+18 bölümü:** yetişkin içerik normal aramalarda gizlenir, yalnızca kategori menüsündeki **+18** bölümünde ve yaş onayından sonra görünür.
 - **Türkçe içerik önce:** (araç çubuğundan kapatılabilir) Türkçe olduğu anlaşılan sonuçlar (dil bilgisi, “Türkçe altyazılı”, “TR dublaj”, Türkçe karakterli başlıklar) listenin en üstüne çıkar. Diğer dillerdeki sonuçlar da altında listelenir.
 - **Tek tıkla indirme:** ilerleme, hız, kalan süre ve bağlantı sayısı canlı görünür. Duraklat, devam et, klasörde göster.
-- **Kaldığı yerden devam:** uygulamayı kapatıp açınca indirmeler sürer.
+- **Kaldığı yerden devam:** uygulamayı kapatıp açınca yarım kalan indirmeler sürer.
+- **Tamamlanan sekmesi:** biten indirmeler ayrı bir sekmeye taşınır. Bitince bildirim gelir. Biten dosyaları başka bir yere taşısan ya da silsen bile uygulama onları yeniden indirmez; istersen sonuçtaki **Tekrar indir** ile bilerek indirebilirsin.
+- **Dahili oynatıcı:** biten videoları tek tıkla izle; indirme sürerken bile izlemeye başlayabilirsin. Torrent içindeki altyazı (`.srt`, Türkçe olanlar öncelikli) kendiliğinden yüklenir. Desteklenmeyen formatlar (ör. AVI, HEVC) için **Harici oynatıcıda aç** düğmesi var.
 - **Magnet bağlantısı:** arama kutusuna bir `magnet:` bağlantısı yapıştırırsan doğrudan indirir.
 - **Açık ve koyu tema:** sistem ayarını takip eder.
 
 ![Sonuçlar](docs/sonuclar.png)
 ![İndirmeler](docs/indirmeler.png)
+![Oynatıcı](docs/oynatici.png)
 
 ## Arama kaynakları
 

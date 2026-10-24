@@ -128,7 +128,11 @@ export async function startServer({
       let out;
       if (req.method === 'POST' && action === 'pause') out = downloads.pause(id);
       else if (req.method === 'POST' && action === 'resume') out = downloads.resume(id);
-      else if (req.method === 'POST' && action === 'open') {
+      else if (req.method === 'POST' && action === 'open-file') {
+        const file = downloads.openFile(id, Number((await readJson(req)).index));
+        if (file?.path) openPath(file.path);
+        out = file?.path ? { ok: true } : null;
+      } else if (req.method === 'POST' && action === 'open') {
         const folder = downloads.folderOf(id);
         if (folder) openPath(folder);
         out = folder ? { ok: true } : null;
@@ -162,8 +166,43 @@ export async function startServer({
     });
   }
 
+  // <video> ve <track> özel başlık gönderemediği için anahtar adreste taşınır.
+  function serveMedia(req, res, url) {
+    const [, , id, index, extra] = url.pathname.split('/'); // /media/:id/:index[/subtitle.vtt]
+    if (url.searchParams.get('t') !== token) return send(res, 403, { error: 'Yetkisiz istek.' });
+    if (extra === 'subtitle.vtt') {
+      const sub = downloads.subtitleFor(id, Number(index));
+      if (!sub) return send(res, 404, { error: 'Altyazı yok.' });
+      res.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(sub.vtt);
+    }
+    const file = downloads.openFile(id, Number(index));
+    if (!file) return send(res, 404, { error: 'Dosya bulunamadı. Taşınmış ya da silinmiş olabilir.' });
+    const headers = { 'Content-Type': file.type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' };
+    const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+    let start = 0;
+    let end = file.size - 1;
+    if (m && (m[1] || m[2])) {
+      if (m[1]) { start = Number(m[1]); if (m[2]) end = Math.min(Number(m[2]), end); }
+      else start = Math.max(0, file.size - Number(m[2])); // "bytes=-500": son 500 bayt
+      if (start > end || start >= file.size) {
+        res.writeHead(416, { 'Content-Range': `bytes */${file.size}` });
+        return res.end();
+      }
+      res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${file.size}`, 'Content-Length': end - start + 1 });
+    } else {
+      res.writeHead(200, { ...headers, 'Content-Length': file.size });
+    }
+    if (req.method === 'HEAD') return res.end();
+    const stream = file.stream({ start, end });
+    stream.on('error', () => res.destroy());
+    res.on('close', () => stream.destroy());
+    stream.pipe(res);
+  }
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    if (url.pathname.startsWith('/media/')) return serveMedia(req, res, url);
     if (!url.pathname.startsWith('/api/')) return serveStatic(req, res, url);
     if (req.headers['x-app-token'] !== token) return send(res, 403, { error: 'Yetkisiz istek.' });
     try {
