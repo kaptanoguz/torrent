@@ -160,3 +160,26 @@ test('önbellekteki sonuçlar 20 sorgu kotasından düşmez', async () => {
   assert.equal(calls, 40);
   assert.ok(mixed.every((r) => r.rating));
 });
+
+test('OMDb cevabı arama bitmeden diske yazılır', async () => {
+  const file = path.join(tmp(), 'omdb-cache.json');
+  // İlk yapım hemen döner, ikincisi hiç dönmez (arama yarıda kalır).
+  const fakeFetch = (url) => {
+    if (new URL(url).searchParams.get('t') === 'Nosferatu') {
+      return Promise.resolve(new Response(JSON.stringify({ Response: 'True', imdbID: 'tt0013442', imdbRating: '7.9', Year: '1922' }), { status: 200 }));
+    }
+    return new Promise(() => {});
+  };
+  const pending = addImdbRatings([
+    { title: 'Nosferatu (1922)', category: 'movies' },
+    { title: 'Asla Gelmeyen 1930', category: 'movies' },
+  ], 'k', { fetch: fakeFetch, ratingsCache: createRatingsCache(file) });
+  await wait(50);
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(saved['nosferatu|1922|false'].value.imdbId, 'tt0013442');
+  // Yeni oturum bu yapımı tekrar sormaz.
+  let calls = 0;
+  await addImdbRatings([{ title: 'Nosferatu (1922)', category: 'movies' }], 'k', { fetch: async () => { calls++; return new Response('{}'); }, ratingsCache: createRatingsCache(file) });
+  assert.equal(calls, 0);
+  void pending;
+});

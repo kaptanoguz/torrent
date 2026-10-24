@@ -145,3 +145,15 @@ test('Lucene işleçleri ve özel karakterler sorguyu bozmaz', async () => {
   assert.deepEqual(await archive.search({ query: '"()" :' }, { fetch: fakeFetch }), []);
   assert.equal(calls.length, 0);
 });
+
+test('düz .ts uzantısı kamera kaydı sayılmaz, TS sürüm etiketi sayılır', () => {
+  const penalized = (title) => rankResults([{ id: 'x', title, torrentUrl: 'x' }, { id: 'y', title: 'Film 2023', torrentUrl: 'y' }])[0].id === 'y';
+  assert.ok(!penalized('Bolum1.ts'));
+  assert.ok(!penalized('Kayit.2023.ts'));
+  assert.ok(!penalized('Teen.Titans.Go.S01'));
+  assert.ok(penalized('Film.2023.TS.x264'));
+  assert.ok(penalized('Film (2023) TS'));
+  assert.ok(penalized('Film.TS.XviD'));
+  assert.ok(penalized('Film 2023 HDTS 720p'));
+  assert.ok(penalized('Film 2023 Telesync'));
+});

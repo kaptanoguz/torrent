@@ -4,7 +4,7 @@ Bir film adı, konu ya da tür yaz; sonuçları gör, **İndir**’e bas. Hepsi 
 
 Torrent Bul; Windows, macOS ve Linux’ta çalışan sade bir masaüstü uygulamasıdır. Dahili torrent motoru (WebTorrent) sayesinde ayrı bir torrent programı kurman gerekmez.
 
-![Ana ekran](docs/ana-ekran.png)
+![Ana ekran ve Kütüphanen şeridi: afiş, ilerleme çubuğu ve İzlendi işareti](docs/ana-ekran.png)
 
 ## Neler yapar?
 
@@ -27,8 +27,22 @@ Torrent Bul; Windows, macOS ve Linux’ta çalışan sade bir masaüstü uygulam
 - **Tepside çalışma (isteğe bağlı):** Ayarlar’dan açarsan pencereyi kapatınca indirmeler sürer; tepsideki simgeden açıp çıkabilirsin. Varsayılan olarak kapatmak uygulamayı kapatır.
 - **Açık ve koyu tema:** sistem ayarını takip eder.
 
+## Ekran görüntüleri
+
+**Arama sonuçları:** Türkçe olanlar önde, lisans rozetleri (CC, Kamu malı) ve tür bilgisiyle.
+
 ![Sonuçlar](docs/sonuclar.png)
+
+**Dosya seçimi:** çok dosyalı torrentte en büyük video ve ona uyan altyazı hazır işaretli gelir; örnek (sample) dosyalar işaretlenmez.
+
+![Dosya seçimi](docs/dosya-secimi.png)
+
+**İndirmeler:** fazla indirmeler **Sırada** bekler; dosya seçimi bekleyen torrentte **Dosya seç** düğmesi çıkar.
+
 ![İndirmeler](docs/indirmeler.png)
+
+**Oynatıcı:** kaldığın yerden devam, oynatma hızı ve **Altyazı yükle**.
+
 ![Oynatıcı](docs/oynatici.png)
 
 ## Arama kaynakları
