@@ -93,6 +93,10 @@
     <div class="drawer-head">
       <h2>İndirmeler</h2>
       <div class="drawer-head-actions">
+        <button class="ghost-btn small" id="import-btn" type="button" title="Bilgisayarındaki .torrent dosyalarını ekle">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          Torrent ekle
+        </button>
         <button class="ghost-btn small" id="open-dir-btn" type="button">Klasörü aç</button>
         <button class="icon-btn" id="drawer-close" type="button" aria-label="Kapat">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
@@ -110,6 +114,41 @@
     </div>
   </aside>
   <div class="scrim" id="scrim" hidden></div>
+
+  <input type="file" id="import-files" accept=".torrent,application/x-bittorrent" multiple hidden />
+  <input type="file" id="import-folder" webkitdirectory multiple hidden />
+  <div class="drop-overlay" id="drop-overlay" hidden>
+    <div><strong>.torrent dosyalarını bırak</strong><span>Hepsi listelenecek, istediklerini seçip indirebilirsin.</span></div>
+  </div>
+
+  <dialog class="modal import" id="import">
+    <form method="dialog" id="import-form">
+      <div class="modal-head">
+        <h2>Torrent dosyaları ekle</h2>
+        <button class="icon-btn" value="cancel" aria-label="Kapat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="import-pick" id="import-pick">
+        <p>Bilgisayarındaki <strong>.torrent</strong> dosyalarını seç ya da bir klasörün içindekilerin hepsini al. Dosyaları bu pencereye sürükleyip bırakabilirsin de.</p>
+        <div class="import-pick-actions">
+          <button class="primary-btn" type="button" id="pick-files">Dosyaları seç</button>
+          <button class="ghost-btn" type="button" id="pick-folder">Klasör seç</button>
+        </div>
+      </div>
+      <div class="import-list-wrap" id="import-list-wrap" hidden>
+        <div class="import-list-head">
+          <label class="check"><input type="checkbox" id="import-all" checked /> <span id="import-summary"></span></label>
+          <button class="ghost-btn small" type="button" id="pick-more">+ Daha fazla ekle</button>
+        </div>
+        <ul class="import-list" id="import-list"></ul>
+      </div>
+      <div class="modal-foot">
+        <button class="ghost-btn" value="cancel">Vazgeç</button>
+        <button class="primary-btn" value="go" id="import-go" disabled>İndir</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog class="player" id="player" aria-label="Oynatıcı">
     <div class="player-head">
@@ -151,6 +190,12 @@
       <label class="field">
         <span>İndirme klasörü</span>
         <input id="set-dir" type="text" spellcheck="false" />
+      </label>
+
+      <label class="toggle">
+        <input type="checkbox" id="set-seed" />
+        <span class="toggle-ui" aria-hidden="true"></span>
+        <span><strong>Biten indirmeleri paylaşmaya devam et</strong><small>TurkSeed gibi üyelikli sitelerde oranın (ratio) düşmesin diye. Dosyaları taşırsan paylaşım durur, hiçbir şey yeniden inmez.</small></span>
       </label>
 
       <fieldset class="field">

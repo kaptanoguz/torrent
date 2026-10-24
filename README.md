@@ -16,6 +16,8 @@ Torrent Bul; Windows, macOS ve Linux’ta çalışan sade bir masaüstü uygulam
 - **Tek tıkla indirme:** ilerleme, hız, kalan süre ve bağlantı sayısı canlı görünür. Duraklat, devam et, klasörde göster.
 - **Kaldığı yerden devam:** uygulamayı kapatıp açınca yarım kalan indirmeler sürer.
 - **Tamamlanan sekmesi:** biten indirmeler ayrı bir sekmeye taşınır. Bitince bildirim gelir. Biten dosyaları başka bir yere taşısan ya da silsen bile uygulama onları yeniden indirmez; istersen sonuçtaki **Tekrar indir** ile bilerek indirebilirsin.
+- **Bilgisayardaki .torrent dosyaları:** İndirmeler panelindeki **Torrent ekle** ile istediğin kadar `.torrent` dosyasını ya da bütün bir klasörü seç (veya pencereye sürükleyip bırak). Hepsi boyutlarıyla listelenir; istediklerini işaretleyip tek tıkla indir.
+- **Paylaşmaya devam (oran):** TurkSeed gibi üyelikli sitelerde oranın düşmesin diye Ayarlar’dan **Biten indirmeleri paylaşmaya devam et**’i aç. Dosyaları taşırsan paylaşım durur, yine hiçbir şey yeniden inmez.
 - **Dahili oynatıcı:** biten videoları tek tıkla izle; indirme sürerken bile izlemeye başlayabilirsin. Torrent içindeki altyazı (`.srt`, Türkçe olanlar öncelikli) kendiliğinden yüklenir. Desteklenmeyen formatlar (ör. AVI, HEVC) için **Harici oynatıcıda aç** düğmesi var.
 - **Magnet bağlantısı:** arama kutusuna bir `magnet:` bağlantısı yapıştırırsan doğrudan indirir.
 - **Açık ve koyu tema:** sistem ayarını takip eder.
@@ -45,6 +47,8 @@ tar -xzf Jackett.Binaries.LinuxAMDx64.tar.gz && cd Jackett && sudo ./install_ser
 1. Tarayıcıda `http://127.0.0.1:9117` adresini aç ve **+ Add indexer** ile istediğin siteleri ekle.
 2. Sağ üstteki **API Key**’i kopyala.
 3. Torrent Bul’da **Ayarlar → + Kendi indeksleyicini ekle**’ye bas; adres hazır gelir, anahtarı yapıştırıp kaydet.
+
+Üyeliğin olan siteler (ör. TurkSeed) de Jackett’ın listesinde: **+ Add indexer**’da adını arat, kullanıcı adı ve şifreni gir.
 
 Cloudflare korumalı bazı siteler Jackett’ta ayrıca [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) ister. Yeni bir kaynak eklemek için `src/providers/` altına `search(params)` fonksiyonu olan bir modül yazıp `src/search.js` içinde listeye eklemen yeterli.
 

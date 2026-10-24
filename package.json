@@ -25,6 +25,7 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "parse-torrent": "^11.0.24",
     "webtorrent": "^3.0.21"
   },
   "devDependencies": {

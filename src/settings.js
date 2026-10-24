@@ -8,6 +8,8 @@ export const DEFAULTS = {
   torznab: [],
   archiveEnabled: true,
   omdbApiKey: '',
+  // Özel tracker'larda oran için biten indirmeleri paylaşmaya devam et.
+  seedAfterDone: false,
 };
 
 export function createSettingsStore(file) {
@@ -23,6 +25,7 @@ export function createSettingsStore(file) {
       const next = { ...data };
       if (typeof patch.downloadDir === 'string' && patch.downloadDir.trim()) next.downloadDir = patch.downloadDir.trim();
       if (typeof patch.archiveEnabled === 'boolean') next.archiveEnabled = patch.archiveEnabled;
+      if (typeof patch.seedAfterDone === 'boolean') next.seedAfterDone = patch.seedAfterDone;
       if (typeof patch.omdbApiKey === 'string') next.omdbApiKey = patch.omdbApiKey.trim();
       if (Array.isArray(patch.torznab)) {
         next.torznab = patch.torznab

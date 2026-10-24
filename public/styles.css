@@ -398,3 +398,30 @@ body.adult-mode .select.in-search select { color: var(--danger); }
   .player-title { flex-wrap: wrap; flex: 1; }
   #player-external { display: none; }
 }
+
+.dl-sub .seeding { color: var(--success); font-weight: 600; }
+.drawer-head-actions .ghost-btn svg { width: 15px; height: 15px; }
+
+/* Toplu .torrent ekleme */
+.modal.import { width: min(640px, calc(100vw - 32px)); }
+.import-pick { display: grid; gap: 16px; justify-items: center; text-align: center; padding: 28px 12px; border: 1.5px dashed var(--border); border-radius: var(--radius); background: var(--bg); }
+.import-pick p { margin: 0; color: var(--text-2); max-width: 420px; }
+.import-pick-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.import-list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; font-size: 14px; color: var(--text-2); }
+.import-list { list-style: none; margin: 0; padding: 0; max-height: min(46vh, 420px); overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.import-list li + li { border-top: 1px solid var(--border); }
+.import-list li.is-error { opacity: 0.75; }
+.check { display: flex; align-items: center; gap: 10px; cursor: pointer; min-width: 0; }
+.check input { width: 16px; height: 16px; accent-color: var(--accent); flex: none; margin: 0; }
+.import-list .check { padding: 10px 12px; }
+.import-list .check:hover { background: var(--surface-2); }
+.import-main { display: grid; min-width: 0; }
+.import-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.import-sub { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12.5px; }
+.import-error { color: var(--danger); }
+.pill.private { background: rgba(212, 138, 11, 0.13); color: var(--warn); }
+.pill.muted-pill { background: var(--surface-2); color: var(--text-2); }
+.drop-overlay { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; background: rgba(8, 10, 16, 0.55); backdrop-filter: blur(3px); pointer-events: none; }
+.drop-overlay > div { display: grid; gap: 6px; text-align: center; padding: 40px 56px; border: 2px dashed var(--accent); border-radius: 20px; background: var(--surface); box-shadow: var(--shadow-lg); }
+.drop-overlay strong { font-size: 18px; }
+.drop-overlay span { color: var(--text-2); font-size: 14px; }

@@ -47,7 +47,7 @@ async function readJson(req) {
   let raw = '';
   for await (const chunk of req) {
     raw += chunk;
-    if (raw.length > 1e6) throw new Error('İstek çok büyük.');
+    if (raw.length > 25e6) throw new Error('İstek çok büyük.');
   }
   return raw ? JSON.parse(raw) : {};
 }
@@ -64,6 +64,7 @@ export async function startServer({
   const downloads = createDownloadManager({
     stateFile: path.join(dataDir, 'downloads.json'),
     getDownloadDir: () => settings.get().downloadDir,
+    shouldSeed: () => settings.get().seedAfterDone === true,
     createClient: createClient || (await defaultClient()),
   });
   // Yalnızca bu uygulamanın kendi sayfası API'yi çağırabilsin diye oturum anahtarı.
@@ -114,13 +115,27 @@ export async function startServer({
         });
       }
       if (body.omdbApiKey === MASK) delete body.omdbApiKey;
+      const seedBefore = settings.get().seedAfterDone;
       settings.update(body);
+      if (settings.get().seedAfterDone !== seedBefore) downloads.setSeeding(settings.get().seedAfterDone);
       return send(res, 200, publicSettings());
     }
     if (route === 'GET /downloads') return send(res, 200, downloads.list());
     if (route === 'POST /downloads') {
       const body = await readJson(req);
-      return send(res, 201, downloads.add(body));
+      return send(res, 201, await downloads.add(body));
+    }
+    if (route === 'POST /torrents/inspect') {
+      const body = await readJson(req);
+      const files = Array.isArray(body.files) ? body.files.slice(0, 500) : [];
+      const out = await Promise.all(files.map(async (f) => {
+        try {
+          return { file: String(f.name || ''), ...(await downloads.inspect(f.data)) };
+        } catch (err) {
+          return { file: String(f.name || ''), error: err.message };
+        }
+      }));
+      return send(res, 200, out);
     }
     if (parts[1] === 'downloads' && parts[2]) {
       const id = parts[2];

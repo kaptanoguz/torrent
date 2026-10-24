@@ -434,9 +434,12 @@ function activeCard(d) {
 
 function doneCard(d) {
   const canPlay = d.videos?.length && !d.missing;
+  const ratio = d.ratio ? `oran ${d.ratio.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}` : '';
   const info = d.missing
     ? '<span class="missing">Dosyalar taşınmış ya da silinmiş</span>'
-    : [formatBytes(d.length), d.videos?.length > 1 ? `${d.videos.length} video` : '', formatDate(d.completedAt)].filter(Boolean).join(' · ');
+    : d.seeding
+      ? ['<span class="seeding">Paylaşılıyor</span>', `↑ ${formatBytes(d.uploadSpeed) || '0 B'}/sn`, ratio].filter(Boolean).join(' · ')
+      : [formatBytes(d.length), d.videos?.length > 1 ? `${d.videos.length} video` : '', formatDate(d.completedAt), ratio].filter(Boolean).join(' · ');
   return `<li class="dl done-card${d.missing ? ' is-missing' : ''}" data-id="${d.id}">
     <button class="play-tile" type="button" data-act="watch" ${canPlay ? '' : 'disabled'} aria-label="İzle" title="${canPlay ? 'Dahili oynatıcıda izle' : d.missing ? 'Dosyalar bulunamadı' : 'Video dosyası yok'}">${canPlay ? ICONS.play : ICONS.file}</button>
     <div class="dl-body">
@@ -558,6 +561,123 @@ $('scrim').addEventListener('click', closeDrawer);
 $('open-dir-btn').addEventListener('click', () => api('open-download-dir', { method: 'POST' }).catch((err) => toast(err.message, 'error')));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('player').open) closeDrawer(); });
 
+/* ---------- .torrent dosyalarını toplu ekleme ---------- */
+
+const imported = []; // { file, data, infoHash, name, length, fileCount, private, existing, error, checked }
+
+function readAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function addTorrentFiles(fileList) {
+  const files = [...fileList].filter((f) => /\.torrent$/i.test(f.name) && f.size < 10 * 1024 * 1024);
+  if (!files.length) return toast('Seçilenlerde .torrent dosyası yok.', 'error');
+  openImport();
+  $('import-summary').textContent = `${files.length} dosya okunuyor…`;
+  const payload = await Promise.all(files.map(async (f) => ({ name: f.name, data: await readAsBase64(f) })));
+  const infos = await api('torrents/inspect', { method: 'POST', body: JSON.stringify({ files: payload }) });
+  infos.forEach((info, i) => {
+    if (info.infoHash && imported.some((x) => x.infoHash === info.infoHash)) return;
+    imported.push({ ...info, data: payload[i].data, checked: !info.error && !info.existing });
+  });
+  renderImport();
+}
+
+function renderImport() {
+  const ok = imported.filter((x) => !x.error);
+  const chosen = ok.filter((x) => x.checked);
+  $('import-pick').hidden = imported.length > 0;
+  $('import-list-wrap').hidden = imported.length === 0;
+  $('import-summary').textContent = `${ok.length} torrent bulundu · ${chosen.length} seçili · ${formatBytes(chosen.reduce((n, x) => n + (x.length || 0), 0)) || '0 B'}`;
+  $('import-all').checked = ok.length > 0 && chosen.length === ok.length;
+  $('import-go').disabled = chosen.length === 0;
+  $('import-go').textContent = chosen.length ? `${chosen.length} torrenti indir` : 'İndir';
+  $('import-list').innerHTML = imported.map((x, i) => {
+    const badges = [
+      x.private ? '<span class="pill private">Özel</span>' : '',
+      x.existing ? '<span class="pill muted-pill">Zaten listede</span>' : '',
+    ].join('');
+    const sub = x.error
+      ? `<span class="import-error">${esc(x.error)}</span>`
+      : [formatBytes(x.length), x.fileCount > 1 ? `${x.fileCount} dosya` : ''].filter(Boolean).join(' · ');
+    return `<li class="${x.error ? 'is-error' : ''}">
+      <label class="check">
+        <input type="checkbox" data-i="${i}" ${x.checked ? 'checked' : ''} ${x.error ? 'disabled' : ''} />
+        <span class="import-main">
+          <span class="import-name" title="${esc(x.file)}">${esc(x.name || x.file)}</span>
+          <span class="import-sub">${sub}${badges}</span>
+        </span>
+      </label>
+    </li>`;
+  }).join('');
+}
+
+function openImport() {
+  if (!$('import').open) $('import').showModal();
+}
+
+function resetImport() {
+  imported.length = 0;
+  renderImport();
+}
+
+$('import-btn').addEventListener('click', () => { resetImport(); openImport(); });
+$('pick-files').addEventListener('click', () => $('import-files').click());
+$('pick-more').addEventListener('click', () => $('import-files').click());
+$('pick-folder').addEventListener('click', () => $('import-folder').click());
+for (const id of ['import-files', 'import-folder']) {
+  $(id).addEventListener('change', (e) => {
+    addTorrentFiles(e.target.files).catch((err) => toast(err.message, 'error'));
+    e.target.value = '';
+  });
+}
+$('import-list').addEventListener('change', (e) => {
+  const i = e.target.dataset.i;
+  if (i == null) return;
+  imported[i].checked = e.target.checked;
+  renderImport();
+});
+$('import-all').addEventListener('change', () => {
+  for (const x of imported) if (!x.error) x.checked = $('import-all').checked;
+  renderImport();
+});
+$('import').addEventListener('close', async () => {
+  const chosen = $('import').returnValue === 'go' ? imported.filter((x) => x.checked && !x.error) : [];
+  resetImport();
+  if (!chosen.length) return;
+  let ok = 0;
+  for (const x of chosen) {
+    try {
+      await api('downloads', { method: 'POST', body: JSON.stringify({ torrentFile: x.data, title: x.name }) });
+      ok++;
+    } catch (err) {
+      toast(`${x.name}: ${err.message}`, 'error');
+    }
+  }
+  if (ok) toast(`${ok} torrent indirmeye eklendi`);
+  await refreshDownloads();
+  openDrawer('active');
+});
+
+// Pencerenin herhangi bir yerine .torrent dosyası sürükleyip bırakma.
+let dragDepth = 0;
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+window.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; $('drop-overlay').hidden = false; });
+window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('drop-overlay').hidden = true; } });
+window.addEventListener('drop', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  dragDepth = 0;
+  $('drop-overlay').hidden = true;
+  addTorrentFiles(e.dataTransfer.files).catch((err) => toast(err.message, 'error'));
+});
+
 /* ---------- Oynatıcı ---------- */
 
 const player = { id: null, index: null };
@@ -639,6 +759,7 @@ $('settings-btn').addEventListener('click', async () => {
   $('set-dir').value = s.downloadDir;
   $('set-archive').checked = s.archiveEnabled !== false;
   $('set-omdb').value = s.omdbApiKey || '';
+  $('set-seed').checked = s.seedAfterDone === true;
   $('torznab-list').innerHTML = '';
   s.torznab.forEach(addTorznabRow);
   $('settings').showModal();
@@ -660,7 +781,7 @@ $('settings').addEventListener('close', async () => {
   try {
     await api('settings', {
       method: 'PUT',
-      body: JSON.stringify({ downloadDir: $('set-dir').value, archiveEnabled: $('set-archive').checked, omdbApiKey: $('set-omdb').value, torznab }),
+      body: JSON.stringify({ downloadDir: $('set-dir').value, archiveEnabled: $('set-archive').checked, omdbApiKey: $('set-omdb').value, seedAfterDone: $('set-seed').checked, torznab }),
     });
     toast('Ayarlar kaydedildi');
   } catch (err) {
