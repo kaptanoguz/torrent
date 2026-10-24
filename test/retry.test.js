@@ -10,7 +10,7 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'torrent-bul-retry-'));
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const magnet = (c) => `magnet:?xt=urn:btih:${c.repeat(40)}`;
 
-// WebTorrent yerine geçen sahte motor: eklenen her torrenti kaydeder.
+// qBittorrent yerine geçen sahte motor: eklenen her torrenti kaydeder.
 function fakeEngine() {
   const added = [];
   return {

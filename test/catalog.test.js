@@ -4,14 +4,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import WebTorrent from 'webtorrent';
 import createTorrent from 'create-torrent';
 import { startServer } from '../src/server.js';
 import { createLibrary } from '../src/library.js';
 import { addImdbRatings, createRatingsCache } from '../src/ratings.js';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'torrent-bul-lib2-'));
-const client = () => new WebTorrent({ dht: false, tracker: false, lsd: false, natUpnp: false, natPmp: false, utp: false });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function call(app, p, opts = {}) {
@@ -36,7 +34,7 @@ async function fixture() {
     const m = /bytes=(\d+)-(\d+)?/.exec(req.headers.range || '');
     const start = m ? Number(m[1]) : 0;
     const end = m && m[2] ? Number(m[2]) : video.length - 1;
-    res.writeHead(m ? 206 : 200, { 'Content-Length': end - start + 1 });
+    res.writeHead(m ? 206 : 200, { 'Content-Length': end - start + 1, ...(m ? { 'Content-Range': `bytes ${start}-${end}/${video.length}` } : {}) });
     res.end(video.subarray(start, end + 1));
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -51,7 +49,7 @@ test('biten indirme kütüphaneye girer, ilerleme ikinci oturumda okunur, kayıt
   const { server, url } = await fixture();
   const dataDir = tmp();
   const downloadDir = path.join(dataDir, 'dl');
-  let app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+  let app = await startServer({ dataDir, openPath: () => {} });
   try {
     await call(app, 'settings', { method: 'PUT', body: JSON.stringify({ downloadDir }) });
     await call(app, 'downloads', {
@@ -85,7 +83,7 @@ test('biten indirme kütüphaneye girer, ilerleme ikinci oturumda okunur, kayıt
     // İndirme listeden kaldırılınca kütüphane kaydı durur ve dosya hâlâ oynatılabilir.
     await call(app, `downloads/${done.id}`, { method: 'DELETE' });
     await app.close();
-    app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+    app = await startServer({ dataDir, openPath: () => {} });
     const [again] = (await call(app, 'library')).body;
     assert.equal(again.items[0].positionSec, 61);
     assert.equal(again.items[0].durationSec, 5400);

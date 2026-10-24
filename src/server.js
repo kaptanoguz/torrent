@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createSettingsStore } from './settings.js';
 import { createDownloadManager, subtitleToVtt, MAX_SUBTITLE_BYTES } from './downloads.js';
+import { createQbEngine } from './qbittorrent.js';
 import { activeProviders, searchAll } from './search.js';
 import { createLibrary } from './library.js';
 import { createRatingsCache } from './ratings.js';
@@ -35,10 +36,6 @@ function systemOpen(target) {
   spawn(cmd, [target], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
 }
 
-async function defaultClient() {
-  const { default: WebTorrent } = await import('webtorrent');
-  return () => new WebTorrent();
-}
 
 function send(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -59,7 +56,7 @@ export async function startServer({
   host = '127.0.0.1',
   dataDir = defaultDataDir(),
   openPath = systemOpen,
-  createClient,
+  engine,
   fetchImpl = fetch,
 } = {}) {
   const settings = createSettingsStore(path.join(dataDir, 'settings.json'));
@@ -69,7 +66,7 @@ export async function startServer({
     stateFile: path.join(dataDir, 'downloads.json'),
     getDownloadDir: () => settings.get().downloadDir,
     shouldSeed: () => settings.get().seedAfterDone === true,
-    createClient: createClient || (await defaultClient()),
+    engine: engine || createQbEngine({ profileDir: path.join(dataDir, 'qbittorrent') }),
     onDone: (info) => library.upsert(info),
     maxActive: () => settings.get().maxActiveDownloads,
   });

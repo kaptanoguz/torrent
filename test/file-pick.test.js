@@ -4,12 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import WebTorrent from 'webtorrent';
 import createTorrent from 'create-torrent';
 import { startServer } from '../src/server.js';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'torrent-bul-pick-'));
-const client = () => new WebTorrent({ dht: false, tracker: false, lsd: false, natUpnp: false, natPmp: false, utp: false });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function call(app, p, opts = {}) {
@@ -48,7 +46,7 @@ async function fixture(files, name = 'Paket') {
     const m = /bytes=(\d+)-(\d+)?/.exec(req.headers.range || '');
     const start = m ? Number(m[1]) : 0;
     const end = m && m[2] ? Number(m[2]) : body.length - 1;
-    res.writeHead(m ? 206 : 200, { 'Content-Length': end - start + 1 });
+    res.writeHead(m ? 206 : 200, { 'Content-Length': end - start + 1, ...(m ? { 'Content-Range': `bytes ${start}-${end}/${body.length}` } : {}) });
     res.end(body.subarray(start, end + 1));
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -70,7 +68,7 @@ test('çok dosyalı torrentte yalnızca seçilen dosya iner, seçim yeniden aç�
   const { server, url } = await fixture({ 'film.mp4': film, 'sample.mp4': ornek, 'film.tr.srt': Buffer.from('1\n00:00:01,000 --> 00:00:02,000\nMerhaba\n') });
   const dataDir = tmp();
   const downloadDir = path.join(dataDir, 'dl');
-  let app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+  let app = await startServer({ dataDir, openPath: () => {} });
   try {
     await call(app, 'settings', { method: 'PUT', body: JSON.stringify({ downloadDir }) });
     const { body: added } = await call(app, 'downloads', { method: 'POST', body: JSON.stringify({ torrentUrl: url, title: 'Paket' }) });
@@ -101,7 +99,7 @@ test('çok dosyalı torrentte yalnızca seçilen dosya iner, seçim yeniden aç�
     assert.deepEqual(saved[0].selectedIndexes, [0, 2]);
 
     await app.close();
-    app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+    app = await startServer({ dataDir, openPath: () => {} });
     const again = await call(app, `downloads/${added.id}/files`);
     assert.deepEqual(again.body.files.map((f) => f.selected), [true, false, true]);
     await wait(500);
@@ -119,7 +117,7 @@ test('yarıda kapanan seçimli indirme açılınca yalnızca seçilen dosyayla s
   const { server, gate, torrent } = await fixture({ 'bolum1.mkv': a, 'bolum2.mkv': b }, 'Dizi');
   const dataDir = tmp();
   const downloadDir = path.join(dataDir, 'dl');
-  let app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+  let app = await startServer({ dataDir, openPath: () => {} });
   try {
     await call(app, 'settings', { method: 'PUT', body: JSON.stringify({ downloadDir }) });
     const inspected = await call(app, 'torrents/inspect', { method: 'POST', body: JSON.stringify({ files: [{ name: 'dizi.torrent', data: torrent.toString('base64') }] }) });
@@ -131,7 +129,7 @@ test('yarıda kapanan seçimli indirme açılınca yalnızca seçilen dosyayla s
     assert.notEqual(added.body.status, 'picking');
     await app.close();
 
-    app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+    app = await startServer({ dataDir, openPath: () => {} });
     gate.release();
     const [done] = await waitFor(app, (l) => l[0]?.status === 'done');
     assert.equal(done.length, b.length);
@@ -148,7 +146,7 @@ test('tek dosyalı torrent seçim sormadan doğrudan iner', async () => {
   const film = fill(80 * 1024, 13);
   const { server, url } = await fixture({ 'tek.mp4': film });
   const dataDir = tmp();
-  const app = await startServer({ dataDir, openPath: () => {}, createClient: client });
+  const app = await startServer({ dataDir, openPath: () => {} });
   try {
     await call(app, 'settings', { method: 'PUT', body: JSON.stringify({ downloadDir: path.join(dataDir, 'dl') }) });
     await call(app, 'downloads', { method: 'POST', body: JSON.stringify({ torrentUrl: url }) });

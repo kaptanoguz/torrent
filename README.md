@@ -2,7 +2,7 @@
 
 Bir film adı, konu ya da tür yaz; sonuçları gör, **İndir**’e bas. Hepsi bu.
 
-Torrent Bul; Windows, macOS ve Linux’ta çalışan sade bir masaüstü uygulamasıdır. Dahili torrent motoru (WebTorrent) sayesinde ayrı bir torrent programı kurman gerekmez.
+Torrent Bul; Windows, macOS ve Linux’ta çalışan sade bir masaüstü uygulamasıdır. İndirmeleri arka planda [qBittorrent](https://www.qbittorrent.org) yapar: bağlantı ve eş bulma konusunda en sağlam motorlardan biridir. Torrent Bul onu kendi ayrı profiliyle başlatır ve ayarlarını kendisi yapar; senin qBittorrent ayarlarına ve listene dokunmaz.
 
 ![Ana ekran ve Kütüphanen şeridi: ilerleme çubuğu ve İzlendi işareti](docs/ana-ekran.png)
 
@@ -78,9 +78,10 @@ Cloudflare korumalı bazı siteler Jackett’ta ayrıca [FlareSolverr](https://g
 
 ## Kurulum
 
-Gerekenler: [Node.js](https://nodejs.org) 20 veya üstü.
+Gerekenler: [Node.js](https://nodejs.org) 20 veya üstü ve qBittorrent.
 
 ```bash
+sudo apt install qbittorrent-nox   # Linux: pencere açmadan çalışan sürüm (önerilen)
 npm install
 npm start          # masaüstü penceresiyle açar
 ```
@@ -92,6 +93,8 @@ npm run kisayol    # "Torrent Bul" menüde ve görev çubuğunda kendi simgesiyl
 ```
 
 ![Torrent Bul simgesi farklı boyutlarda](docs/simge.png)
+
+Windows ve macOS’ta [qbittorrent.org](https://www.qbittorrent.org/download)’dan normal sürümü kurman yeterli; Torrent Bul onu tepsiye küçültülmüş açar. Linux’ta `qbittorrent-nox` yoksa masaüstü `qbittorrent` da kullanılır. Başka bir yerde kuruluysa yolunu `QBITTORRENT_BIN` ortam değişkeniyle verebilirsin.
 
 Tarayıcıda çalıştırmak istersen:
 
@@ -115,7 +118,7 @@ npm run dist:linux   # Linux AppImage
 npm test
 ```
 
-Testler; Türkçe tespitini ve sıralamayı, Internet Archive ve Torznab sorgularını, durum dosyalarının güvenli yazılmasını, dosya seçimini, kütüphane ve izleme kaydını, kuyruğu ve yerel bir sunucudan web-seed’li torrent’lerin uçtan uca indirilmesini kontrol eder. Her push ve pull request’te GitHub Actions ile çalışır.
+Testler; Türkçe tespitini ve sıralamayı, Internet Archive ve Torznab sorgularını, durum dosyalarının güvenli yazılmasını, dosya seçimini, kütüphane ve izleme kaydını, kuyruğu ve gerçek bir qBittorrent ile (yerel web kaynağı ya da ikinci bir qBittorrent eşinden) uçtan uca indirmeyi kontrol eder. Testler için `qbittorrent-nox` kurulu olmalı. Her push ve pull request’te GitHub Actions ile çalışır.
 
 Yapı:
 
@@ -124,7 +127,7 @@ electron/main.js        Masaüstü penceresi
 bin/web.js              Tarayıcı modu
 src/server.js           Yerel API (yalnızca 127.0.0.1, oturum anahtarıyla korunur)
 src/downloads.js        İndirme yöneticisi (dosya seçimi, kuyruk)
-src/engine.js           İndirme motoru adaptörü (WebTorrent)
+src/qbittorrent.js      İndirme motoru: qBittorrent'i başlatır, Web API ile yönetir
 src/library.js          Kütüphane ve izleme kaydı
 src/jsonfile.js         Durum dosyaları için güvenli JSON yazma
 src/search.js           Kaynakları birleştirir

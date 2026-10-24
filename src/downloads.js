@@ -3,7 +3,6 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import parseTorrent from 'parse-torrent';
 import { readJsonSafe, writeJsonAtomic } from './jsonfile.js';
-import { createEngine } from './engine.js';
 
 // Bağlantı kopması, DNS ya da zaman aşımı gibi kendiliğinden düzelebilecek hatalar.
 const TRANSIENT = /fetch failed|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|ENETUNREACH|ENETDOWN|EHOSTUNREACH|EPIPE|socket hang up|network|timed?[ -]?out|Error downloading torrent/i;
@@ -118,7 +117,7 @@ export function magnetInfoHash(magnet) {
   return bits.match(/.{4}/g).map((b) => parseInt(b, 2).toString(16)).join('');
 }
 
-// WebTorrent'i saran indirme yöneticisi. Liste diske yazılır, böylece
+// İndirme motorunu (qBittorrent) saran indirme yöneticisi. Liste diske yazılır, böylece
 // uygulama kapanıp açılınca indirmeler kaldığı yerden devam eder.
 
 // Arama sonucundan gelen ve kütüphanede gösterilecek bilgiler. İstemciden
@@ -142,8 +141,7 @@ function cleanInfo(r = {}) {
 export function createDownloadManager({
   stateFile,
   getDownloadDir,
-  createClient,
-  engine = createEngine(createClient),
+  engine,
   shouldSeed = () => false,
   onDone = () => {},
   maxActive = () => Infinity,
@@ -191,11 +189,10 @@ export function createDownloadManager({
       try { onDone(libraryInfo(meta)); } catch (err) { console.error('[kütüphane]', err.message); }
       // Paylaşım kapalıysa biten torrent kapatılır: dosyalar sonradan taşınsa
       // ya da silinse bile uygulama onları yeniden indirmeye çalışmaz.
-      if (!shouldSeed()) setImmediate(() => { detach(item); pump(); });
+      if (!shouldSeed()) setImmediate(() => { detach(item, { forget: true }); pump(); });
       else pump();
     };
-    // Seçili dosyalar bitince indirme biter; WebTorrent'in kendi 'done'u yalnızca
-    // tüm dosyalar inince gelir.
+    // Seçili dosyalar bitince indirme biter (dosya bazında 'done' olayları).
     const checkSelected = () => {
       const chosen = selectedFiles(meta).map((f) => torrent.files[f.index]).filter(Boolean);
       if (chosen.length && chosen.every((f) => f.done)) finish();
@@ -212,7 +209,7 @@ export function createDownloadManager({
         meta.status = 'error';
         meta.error = BLOCKED_MESSAGE;
         save();
-        setImmediate(() => { detach(item); pump(); });
+        setImmediate(() => { detach(item, { forget: true }); pump(); });
         return;
       }
       if (screen) {
@@ -251,12 +248,12 @@ export function createDownloadManager({
     torrent.on('done', finish);
     torrent.on('error', (err) => {
       if (meta.status === 'done') { // paylaşım hatası: sessizce dur, indirme durumu bozulmasın
-        detach(item);
+        detach(item, { forget: true });
         save();
         return;
       }
       console.error(`[indirme] ${label(meta)}:`, err.message);
-      // WebTorrent hata veren torrenti kendisi kapatır; yeniden denemek yeniden eklemektir.
+      // Motor hata veren torrenti kapatır; yeniden denemek yeniden eklemektir.
       detach(item);
       if (isTransientError(err.message) && (meta.retryCount || 0) < MAX_RETRIES) {
         scheduleRetry(item);
@@ -298,10 +295,14 @@ export function createDownloadManager({
     item.retryTimer = null;
   }
 
-  function detach(item) {
+  // forget: torrent motordan tamamen çıkar (dosyalar kalır). Biten, silinen ve engellenen
+  // indirmeler böyle kapanır; böylece dosyaları sonradan taşınsa da yeniden indirilmez.
+  // Duraklatılanlar motorda bekler; devam edince dosyalar baştan kontrol edilmez.
+  function detach(item, { forget = false } = {}) {
     if (item.torrent) {
       item.meta.uploaded = (item.meta.uploaded || 0) + (item.torrent.uploaded || 0);
-      engine.pause(item.torrent);
+      if (forget) engine.remove(item.torrent);
+      else engine.pause(item.torrent);
       item.torrent = null;
     }
   }
@@ -473,7 +474,7 @@ export function createDownloadManager({
     let changed = false;
     for (const item of items.values()) {
       if (item.torrent && item.meta.status === 'done' && !complete(item.meta)) {
-        detach(item);
+        detach(item, { forget: true });
         changed = true;
       }
     }
@@ -603,7 +604,7 @@ export function createDownloadManager({
       for (const item of items.values()) {
         if (item.meta.status !== 'done') continue;
         if (on && !item.torrent && complete(item.meta)) attach(item, { seed: true });
-        if (!on && item.torrent) detach(item);
+        if (!on && item.torrent) detach(item, { forget: true });
       }
       save();
     },
@@ -664,7 +665,7 @@ export function createDownloadManager({
       const item = items.get(id);
       if (!item) return false;
       cancelRetry(item);
-      detach(item);
+      detach(item, { forget: true });
       items.delete(id);
       save();
       pump();
@@ -707,12 +708,14 @@ export function createDownloadManager({
       const video = files[index];
       if (!video) return null;
       const live = item.torrent && !item.torrent.destroyed ? item.torrent : null;
-      const onDisk = (f) => {
+      // qBittorrent dosyayı baştan tam boyutta açar; indirme sürerken boyut değil motorun durumu esas.
+      const onDisk = (f, i) => {
+        if (live?.files?.[i]) return live.files[i].done;
         try { return fs.statSync(filePath(item.meta, f)).size === f.length; } catch { return false; }
       };
       const base = video.name.replace(/\.[^.]+$/, '').toLowerCase();
       const subs = files
-        .map((f, i) => ({ ...f, i, ready: onDisk(f) }))
+        .map((f, i) => ({ ...f, i, ready: onDisk(f, i) }))
         .filter((f) => fileKind(f.name) === 'subtitle' && f.length <= MAX_SUBTITLE_BYTES && (f.ready || live?.files?.[f.i]));
       const score = (f) => {
         const n = f.name.toLowerCase();

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import WebTorrent from 'webtorrent';
 import { writeJsonAtomic, readJsonSafe } from '../src/jsonfile.js';
 import { createSettingsStore, DEFAULTS } from '../src/settings.js';
 import { createDownloadManager, magnetInfoHash, playableInBrowser } from '../src/downloads.js';
@@ -11,9 +10,9 @@ import { searchAll } from '../src/search.js';
 import archive from '../src/providers/archive.js';
 import { createTorznabProvider } from '../src/providers/torznab.js';
 import { startServer } from '../src/server.js';
+import { createQbEngine } from '../src/qbittorrent.js';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'torrent-bul-state-'));
-const client = () => new WebTorrent({ dht: false, tracker: false, lsd: false, natUpnp: false, natPmp: false, utp: false });
 
 function base32(hex) {
   const bits = [...hex].map((c) => parseInt(c, 16).toString(2).padStart(4, '0')).join('');
@@ -68,7 +67,7 @@ test('magnet btih çözümlenir: hex ve base32 aynı değeri verir', () => {
 
 test('aynı btih ikinci kez eklenmez, var olan kayıt döner', async () => {
   const dir = tmp();
-  const manager = createDownloadManager({ stateFile: path.join(dir, 'downloads.json'), getDownloadDir: () => path.join(dir, 'dl'), createClient: client });
+  const manager = createDownloadManager({ stateFile: path.join(dir, 'downloads.json'), getDownloadDir: () => path.join(dir, 'dl'), engine: createQbEngine({ profileDir: path.join(dir, 'qb') }) });
   try {
     const hex = 'c12fe1c06bba254a9dc9f519b335aa7c1367a88a';
     const a = await manager.add({ magnet: `magnet:?xt=urn:btih:${hex}&dn=Film`, title: 'Film' });
@@ -85,7 +84,7 @@ test('aynı btih ikinci kez eklenmez, var olan kayıt döner', async () => {
 
 test('indirme listesini okumak diske yazmaz', async () => {
   const dataDir = tmp();
-  const app = await startServer({ dataDir, createClient: client });
+  const app = await startServer({ dataDir });
   try {
     const headers = { 'X-App-Token': app.token, 'Content-Type': 'application/json' };
     await fetch(new URL('api/downloads', app.url), {
