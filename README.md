@@ -6,13 +6,13 @@ Torrent Bul; Windows, macOS ve Linux’ta çalışan sade bir masaüstü uygulam
 
 ![Ana ekran ve Kütüphanen şeridi: ilerleme çubuğu ve İzlendi işareti](docs/ana-ekran.png)
 
-*Ekran görüntüsü internetsiz bir ortamda alındı; afiş yüklenemeyince yerine film simgesi çıkar. Normalde Internet Archive kapağı ya da (OMDb anahtarıyla) IMDb afişi görünür.*
+*Ekran görüntüsü internetsiz bir ortamda alındı; afiş yüklenemeyince yerine film simgesi çıkar. Normalde film ve dizilerde IMDb afişi, Internet Archive sonuçlarında Archive kapağı görünür.*
 
 ## Neler yapar?
 
 - **Tek kutudan arama:** film adı ya da konu yaz, yanındaki menüden kategori seç (Film, Dizi, Müzik, Kitap, Yazılım, +18). Ana sayfadaki **Türlere göz at** kartlarıyla tek tıkla türe göre keşfet.
 - **Sıralama ve süzme:** sonuçlar varsayılan olarak en yeni yıldan eskiye sıralanır. En eski, en yüksek puan, en popüler, türe göre ya da boyuta göre de sıralayabilir, **Tür** menüsüyle yalnızca istediğin türü gösterebilirsin. Seçimin hatırlanır.
-- **Puanlar:** Internet Archive kullanıcı puanı (10 üzerinden) gösterilir. Ayarlar’a ücretsiz bir [OMDb](https://www.omdbapi.com/apikey.aspx) anahtarı girersen film ve dizilerde IMDb puanı, tür ve afiş de görünür. Anahtar yoksa da Internet Archive sonuçlarında Archive’ın kendi kapak resmi gösterilir.
+- **Puanlar ve afişler:** Film ve dizilerde IMDb puanı, tür ve afiş anahtar gerekmeden (Cinemeta üzerinden) gösterilir. Bilgi servisi en çok 2,5 saniye beklenir; geç gelen bilgi bir sonraki aramada hazırdır. Ayarlar’a ücretsiz bir [OMDb](https://www.omdbapi.com/apikey.aspx) anahtarı girersen bilgiler oradan alınır ve oy sayısı da görünür. Internet Archive sonuçlarında Archive’ın kendi puanı ve kapağı gösterilir.
 - **+18 bölümü:** yetişkin içerik normal aramalarda gizlenir, yalnızca kategori menüsündeki **+18** bölümünde ve yaş onayından sonra görünür.
 - **Türkçe içerik önce:** (araç çubuğundaki **Türkçe önce** anahtarıyla) Türkçe olduğu anlaşılan sonuçlar (dil bilgisi, “Türkçe altyazılı”, “TR dublaj”, Türkçe karakterli başlıklar) listenin en üstüne çıkar. Tek başına “TR” etiketi Türkçe sayılmaz. Diğer dillerdeki sonuçlar da altında listelenir; 1080p/4K sürümler öne, kamera kayıtları (CAM/TS) arkaya düşer.
 - **Lisans rozeti:** Internet Archive sonuçlarında lisans bilgisi varsa **CC** ya da **Kamu malı** rozeti görünür.
