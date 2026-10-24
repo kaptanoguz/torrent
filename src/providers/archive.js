@@ -48,6 +48,10 @@ function firstText(value) {
   return v == null ? '' : String(v).replace(/<[^>]+>/g, '').trim();
 }
 
+export function archivePoster(id) {
+  return `https://archive.org/services/img/${encodeURIComponent(id)}`;
+}
+
 export function mapDoc(doc, index, total) {
   const id = doc.identifier;
   return {
@@ -68,6 +72,8 @@ export function mapDoc(doc, index, total) {
     webSeed: true,
     torrentUrl: `https://archive.org/download/${encodeURIComponent(id)}/${encodeURIComponent(id)}_archive.torrent`,
     pageUrl: `https://archive.org/details/${encodeURIComponent(id)}`,
+    // Archive her öğe için kapak/küçük resim sunar; OMDb anahtarı yoksa da afiş görünsün.
+    poster: archivePoster(id),
     relevance: ((total - index) / total) * 3,
   };
 }

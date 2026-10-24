@@ -4,13 +4,15 @@ Bir film adı, konu ya da tür yaz; sonuçları gör, **İndir**’e bas. Hepsi 
 
 Torrent Bul; Windows, macOS ve Linux’ta çalışan sade bir masaüstü uygulamasıdır. Dahili torrent motoru (WebTorrent) sayesinde ayrı bir torrent programı kurman gerekmez.
 
-![Ana ekran](docs/ana-ekran.png)
+![Ana ekran ve Kütüphanen şeridi: ilerleme çubuğu ve İzlendi işareti](docs/ana-ekran.png)
+
+*Ekran görüntüsü internetsiz bir ortamda alındı; afiş yüklenemeyince yerine film simgesi çıkar. Normalde Internet Archive kapağı ya da (OMDb anahtarıyla) IMDb afişi görünür.*
 
 ## Neler yapar?
 
 - **Tek kutudan arama:** film adı ya da konu yaz, yanındaki menüden kategori seç (Film, Dizi, Müzik, Kitap, Yazılım, +18). Ana sayfadaki **Türlere göz at** kartlarıyla tek tıkla türe göre keşfet.
 - **Sıralama ve süzme:** sonuçlar varsayılan olarak en yeni yıldan eskiye sıralanır. En eski, en yüksek puan, en popüler, türe göre ya da boyuta göre de sıralayabilir, **Tür** menüsüyle yalnızca istediğin türü gösterebilirsin. Seçimin hatırlanır.
-- **Puanlar:** Internet Archive kullanıcı puanı (10 üzerinden) gösterilir. Ayarlar’a ücretsiz bir [OMDb](https://www.omdbapi.com/apikey.aspx) anahtarı girersen film ve dizilerde IMDb puanı, tür ve afiş de görünür.
+- **Puanlar:** Internet Archive kullanıcı puanı (10 üzerinden) gösterilir. Ayarlar’a ücretsiz bir [OMDb](https://www.omdbapi.com/apikey.aspx) anahtarı girersen film ve dizilerde IMDb puanı, tür ve afiş de görünür. Anahtar yoksa da Internet Archive sonuçlarında Archive’ın kendi kapak resmi gösterilir.
 - **+18 bölümü:** yetişkin içerik normal aramalarda gizlenir, yalnızca kategori menüsündeki **+18** bölümünde ve yaş onayından sonra görünür.
 - **Türkçe içerik önce:** (araç çubuğundaki **Türkçe önce** anahtarıyla) Türkçe olduğu anlaşılan sonuçlar (dil bilgisi, “Türkçe altyazılı”, “TR dublaj”, Türkçe karakterli başlıklar) listenin en üstüne çıkar. Tek başına “TR” etiketi Türkçe sayılmaz. Diğer dillerdeki sonuçlar da altında listelenir; 1080p/4K sürümler öne, kamera kayıtları (CAM/TS) arkaya düşer.
 - **Lisans rozeti:** Internet Archive sonuçlarında lisans bilgisi varsa **CC** ya da **Kamu malı** rozeti görünür.
@@ -22,13 +24,28 @@ Torrent Bul; Windows, macOS ve Linux’ta çalışan sade bir masaüstü uygulam
 - **Bilgisayardaki .torrent dosyaları:** İndirmeler panelindeki **Torrent ekle** ile istediğin kadar `.torrent` dosyasını ya da bütün bir klasörü seç (veya pencereye sürükleyip bırak). Hepsi boyutlarıyla listelenir; istediklerini işaretleyip tek tıkla indir.
 - **Paylaşmaya devam (oran):** TurkSeed gibi üyelikli sitelerde oranın düşmesin diye Ayarlar’dan **Biten indirmeleri paylaşmaya devam et**’i aç. Dosyaları taşırsan paylaşım durur, yine hiçbir şey yeniden inmez.
 - **Kütüphanen:** biten her video ana sayfadaki **Kütüphanen** şeridinde afişi, yılı ve ilerleme çubuğuyla durur. Tıklayınca kaldığın yerden açılır; **İzlendi** olarak işaretleyebilirsin. İndirmeyi listeden kaldırsan da kütüphane kaydı durur; dosyayı taşıdıysan “dosya bulunamadı” yazar.
+- **.exe koruması:** film diye inen torrentte çalıştırılabilir dosya (.exe, .msi, .bat, .scr, .apk vb.) varsa bu dosyalar indirilmez ve kartta “program dosyası atlandı” yazar. Torrentte filmin yerine yalnızca program varsa indirme hiç başlamaz. Programlar yalnızca aramada **Yazılım** kategorisinden seçilen sonuçlarda iner.
 - **Dahili oynatıcı:** videoları tek tıkla izle; indirme sürerken bile izlemeye başlayabilirsin. Torrent içindeki altyazı (`.srt`, Türkçe olanlar öncelikli) indirme bitmeden de yüklenir; **Altyazı yükle** ile bilgisayarındaki bir `.srt`/`.vtt` dosyasını da ekleyebilirsin. Oynatma hızı (0,75×–2×) hatırlanır. Tarayıcının açamadığı biçimler (MKV, AVI, HEVC/x265) için kartta nedeni yazar ve **Harici oynatıcıda aç** önerilir.
 - **Magnet bağlantısı:** arama kutusuna bir `magnet:` bağlantısı yapıştırırsan doğrudan indirir. Kurulu masaüstü uygulaması tarayıcıdaki magnet bağlantılarını da açar.
 - **Tepside çalışma (isteğe bağlı):** Ayarlar’dan açarsan pencereyi kapatınca indirmeler sürer; tepsideki simgeden açıp çıkabilirsin. Varsayılan olarak kapatmak uygulamayı kapatır.
 - **Açık ve koyu tema:** sistem ayarını takip eder.
 
+## Ekran görüntüleri
+
+**Arama sonuçları:** Türkçe olanlar önde, lisans rozetleri (CC, Kamu malı) ve tür bilgisiyle.
+
 ![Sonuçlar](docs/sonuclar.png)
+
+**Dosya seçimi:** çok dosyalı torrentte en büyük video ve ona uyan altyazı hazır işaretli gelir; örnek (sample) dosyalar işaretlenmez.
+
+![Dosya seçimi](docs/dosya-secimi.png)
+
+**İndirmeler:** fazla indirmeler **Sırada** bekler; dosya seçimi bekleyen torrentte **Dosya seç** düğmesi çıkar.
+
 ![İndirmeler](docs/indirmeler.png)
+
+**Oynatıcı:** kaldığın yerden devam, oynatma hızı ve **Altyazı yükle**.
+
 ![Oynatıcı](docs/oynatici.png)
 
 ## Arama kaynakları

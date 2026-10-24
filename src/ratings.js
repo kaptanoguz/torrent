@@ -81,7 +81,8 @@ async function fetchInfo(fetchImpl, apiKey, result) {
 async function lookup(fetchImpl, apiKey, result, cache, key) {
   if (inflight.has(key)) return inflight.get(key);
   const promise = fetchInfo(fetchImpl, apiKey, result)
-    .then((value) => { cache.set(key, value); return value; })
+    // Her cevap gelir gelmez diske yazılır: arama yarıda kesilse de o tur kaybolmaz.
+    .then((value) => { cache.set(key, value); cache.flush(); return value; })
     .catch(() => null)
     .finally(() => inflight.delete(key));
   inflight.set(key, promise);

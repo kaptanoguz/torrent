@@ -8,7 +8,10 @@ const TR_WORDS = /(?<![\p{L}\p{N}])(t[uü]rk[cç]e|turkish|dublaj|altyaz[ıi]l?[
 const TR_TAGS = /(?<![\p{L}\p{N}])tr[\s._-]?(dub|dublaj|altyaz[ıi]|sub)/iu;
 const TR_LANG = /^(tur|tr|turkish|t[uü]rk[cç]e)$/i;
 const RESOLUTION_BONUS = [[/2160p|\b4k\b|uhd/i, 0.4], [/1080p/i, 0.3], [/720p/i, 0.15]];
-const LOW_QUALITY = /\b(cam|hdcam|camrip|telesync|ts)\b/i;
+const LOW_QUALITY = /\b(cam|hdcam|camrip|telesync|hdts|tsrip|ts-rip)\b/i;
+// Düz "ts" çoğu zaman yalnızca .ts video uzantısıdır; telesync etiketi sayılması
+// için yıldan sonra ya da kodek/çözünürlük gibi sürüm bilgisinden önce gelmeli.
+const TS_TAG = /(?:\b(?:19|20)\d{2}[)\]]?(?:[\s_-]+ts\b|\.ts\b(?!\s*$))|\bts[\s._-]+(?:x26[45]|h\.?26[45]|xvid|divx|aac|ac3|mp3|\d{3,4}p|line|audio)\b)/i;
 
 export function isTurkish(result) {
   const langs = [].concat(result.language || []);
@@ -24,7 +27,7 @@ export function score(result) {
   const title = result.title || '';
   const res = RESOLUTION_BONUS.find(([re]) => re.test(title));
   if (res) s += res[1];
-  if (LOW_QUALITY.test(title)) s -= 0.8;
+  if (LOW_QUALITY.test(title) || TS_TAG.test(title)) s -= 0.8;
   return s;
 }
 
