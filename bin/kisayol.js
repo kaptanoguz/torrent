@@ -21,11 +21,19 @@ if (!fs.existsSync(electron)) {
 }
 
 const data = process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
-const iconDir = path.join(data, 'icons', 'hicolor', '512x512', 'apps');
 const appDir = path.join(data, 'applications');
-fs.mkdirSync(iconDir, { recursive: true });
 fs.mkdirSync(appDir, { recursive: true });
-fs.copyFileSync(path.join(root, 'build', 'icon.png'), path.join(iconDir, 'torrent-bul.png'));
+// Dock her boyutta net görünsün: vektör simge ve hazır boyutlar birlikte kurulur;
+// yalnızca 512'lik simge olunca bazı masaüstleri küçük bir kopyayı büyütüp bulanıklaştırıyor.
+const install = (from, size, ext) => {
+  const dir = path.join(data, 'icons', 'hicolor', size, 'apps');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(from, path.join(dir, `torrent-bul.${ext}`));
+};
+install(path.join(root, 'public', 'icon.svg'), 'scalable', 'svg');
+for (const f of fs.readdirSync(path.join(root, 'build', 'icons'))) {
+  if (/^\d+x\d+\.png$/.test(f)) install(path.join(root, 'build', 'icons', f), f.slice(0, -4), 'png');
+}
 
 const q = (s) => `"${s.replace(/(["`$\\])/g, '\\$1')}"`;
 const desktop = `[Desktop Entry]

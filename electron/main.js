@@ -5,6 +5,9 @@ import { startServer } from '../src/server.js';
 import { magnetFromArgv } from '../src/magnet.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+// Pencere sınıfı kısayoldaki StartupWMClass ile aynı olsun: dock "npm start" ile
+// açılınca da kurulu net simgeyi kullanır, pencerenin küçük simgesini büyütmez.
+if (process.platform === 'linux' && !app.commandLine.hasSwitch('class')) app.commandLine.appendSwitch('class', 'torrent-bul');
 let server;
 let win = null;
 let tray = null;

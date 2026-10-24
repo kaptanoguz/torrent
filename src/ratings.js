@@ -93,16 +93,25 @@ async function fetchCinemeta(fetchImpl, result) {
     if (!res.ok) throw new Error(`Cinemeta ${res.status}`);
     return res.json();
   };
+  const startYear = (m) => Number.parseInt(m.releaseInfo || m.year, 10) || null;
+  const pick = (metas, n) => {
+    const sameName = metas.filter((m) => norm(m.name) === norm(n));
+    // Yıl tutuyorsa ad kısmen de eşleşebilir: "Dune Çöl Gezegeni" ↔ "Dune".
+    const partial = (m) => norm(m.name).includes(norm(n)) || ` ${norm(n)} `.includes(` ${norm(m.name)} `);
+    return (year && sameName.find((m) => Math.abs((startYear(m) || 0) - year) <= 1))
+      || (!year && sameName[0])
+      || (year && metas.find((m) => startYear(m) === year && partial(m)));
+  };
   let meta;
   if (result.imdbId) {
     meta = (await get(`meta/${type}/${result.imdbId}.json`)).meta;
   } else {
-    const { metas = [] } = await get(`catalog/${type}/top/search=${encodeURIComponent(name)}.json`);
-    const startYear = (m) => Number.parseInt(m.releaseInfo || m.year, 10) || null;
-    const sameName = metas.filter((m) => norm(m.name) === norm(name));
-    meta = (year && sameName.find((m) => Math.abs((startYear(m) || 0) - year) <= 1))
-      || (!year && sameName[0])
-      || (year && metas.find((m) => startYear(m) === year && norm(m.name).includes(norm(name))));
+    // Türkçe sitelerde ad çoğu zaman "Türkçe Ad / Original Name" ya da "Ad: Alt Başlık" biçimindedir.
+    const names = [...new Set([name, ...name.split(/\s*[/|:]\s*/)].map((n) => n.trim()).filter((n) => n.length > 1))].slice(0, 3);
+    for (const n of names) {
+      meta = pick((await get(`catalog/${type}/top/search=${encodeURIComponent(n)}.json`)).metas || [], n);
+      if (meta) break;
+    }
     if (meta && !meta.imdbRating) meta = (await get(`meta/${type}/${meta.id || meta.imdb_id}.json`)).meta || meta;
   }
   if (!meta || !/^tt\d+$/.test(meta.imdb_id || meta.id || '')) return null;
@@ -116,12 +125,20 @@ async function fetchCinemeta(fetchImpl, result) {
   };
 }
 
+// Bilgi servisine ulaşılamıyorsa terminalde bir kez görünsün; her sonuç için tekrar yazılmaz.
+let warnedAt = 0;
+function warnOnce(err) {
+  if (Date.now() - warnedAt < 60e3) return;
+  warnedAt = Date.now();
+  console.warn('[afiş] film bilgisi alınamadı:', err.cause?.code || err.message);
+}
+
 async function lookup(fetchImpl, apiKey, result, cache, key) {
   if (inflight.has(key)) return inflight.get(key);
   const promise = (apiKey ? fetchInfo(fetchImpl, apiKey, result) : fetchCinemeta(fetchImpl, result))
     // Her cevap gelir gelmez diske yazılır: arama yarıda kesilse de o tur kaybolmaz.
     .then((value) => { cache.set(key, value); cache.flush(); return value; })
-    .catch(() => null)
+    .catch((err) => { warnOnce(err); return null; })
     .finally(() => inflight.delete(key));
   inflight.set(key, promise);
   return promise;
@@ -130,7 +147,7 @@ async function lookup(fetchImpl, apiKey, result, cache, key) {
 export async function addImdbRatings(results, apiKey, { fetch: fetchImpl = fetch, ratingsCache = memoryCache, budgetMs = BUDGET_MS } = {}) {
   // Önbellekte olanlar kotadan düşmez; yalnızca gerçekten sorulanlar 20 ile sınırlı.
   // Anahtarsız kaynağın önbelleği ayrı tutulur; OMDb anahtarı girilince yeniden sorulur.
-  const prefix = apiKey ? '' : 'cm:';
+  const prefix = apiKey ? '' : 'cm2:';
   let lookups = 0;
   const targets = results.filter((r) => r.category === 'movies' || r.category === 'tv');
   const found = new Array(targets.length).fill(null);

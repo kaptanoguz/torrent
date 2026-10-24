@@ -157,3 +157,21 @@ test('düz .ts uzantısı kamera kaydı sayılmaz, TS sürüm etiketi sayılır'
   assert.ok(penalized('Film 2023 HDTS 720p'));
   assert.ok(penalized('Film 2023 Telesync'));
 });
+
+test('Torznab: sitenin afişi kullanılır, Jackett\'in site kodu yerine standart kategori okunur', () => {
+  const xml = `<rss><channel><item>
+    <title>Dizi Adi S01E01 1080p</title>
+    <link>magnet:?xt=urn:btih:${'a'.repeat(40)}</link>
+    <torznab:attr name="category" value="5000" />
+    <torznab:attr name="category" value="100012" />
+    <torznab:attr name="coverurl" value="https://site.example/poster.jpg" />
+  </item><item>
+    <title>Film 2020</title>
+    <link>magnet:?xt=urn:btih:${'b'.repeat(40)}</link>
+    <torznab:attr name="coverurl" value="http://site.example/poster.jpg" />
+  </item></channel></rss>`;
+  const [tv, film] = parseTorznab(xml, 'Jackett');
+  assert.equal(tv.category, 'tv');
+  assert.equal(tv.poster, 'https://site.example/poster.jpg');
+  assert.equal(film.poster, undefined, 'güvensiz (http) afiş adresi kullanılmaz');
+});

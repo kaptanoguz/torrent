@@ -124,3 +124,34 @@ test('geçersiz magnet reddedilir', async () => {
     await app.close();
   }
 });
+
+test('aramada yetişmeyen afiş ve puan sonradan istenebilir; yalnızca film ve dizi sorulur', async () => {
+  const asked = [];
+  const fakeFetch = async (url) => {
+    const u = String(url);
+    asked.push(u);
+    if (u.includes('/catalog/movie/top/search=Dune.json')) {
+      return new Response(JSON.stringify({ metas: [{ id: 'tt1160419', name: 'Dune', releaseInfo: '2021', poster: 'https://m.media-amazon.com/dune.jpg' }] }));
+    }
+    if (u.endsWith('/meta/movie/tt1160419.json')) {
+      return new Response(JSON.stringify({ meta: { id: 'tt1160419', name: 'Dune', imdbRating: '8.0', genres: ['Drama'], releaseInfo: '2021', poster: 'https://images.metahub.space/poster/small/tt1160419/img' } }));
+    }
+    return new Response(JSON.stringify({ metas: [] }));
+  };
+  const app = await startServer({ dataDir: tmp(), fetchImpl: fakeFetch });
+  try {
+    const { status, body } = await call(app, 'ratings', { method: 'POST', body: JSON.stringify({ items: [
+      { id: 'a', title: 'Dune: Çöl Gezegeni 2021 1080p TR Dublaj', year: 2021, category: 'movies' },
+      { id: 'b', title: 'Bir Albüm 2021', year: 2021, category: 'audio' },
+    ] }) });
+    assert.equal(status, 200);
+    assert.equal(body.ratings.a.rating.value, 8);
+    assert.equal(body.ratings.a.imdbUrl, 'https://www.imdb.com/title/tt1160419/');
+    assert.match(body.ratings.a.poster, /tt1160419/);
+    assert.deepEqual(body.ratings.a.genres, ['dram']);
+    assert.equal(body.ratings.b, undefined);
+    assert.ok(asked.every((u) => !u.includes('Alb')), 'müzik sorulmaz');
+  } finally {
+    await app.close();
+  }
+});
