@@ -1,145 +1,143 @@
 # Torrent Bul
 
-Bir film adı, konu ya da tür yaz; sonuçları gör, **İndir**’e bas. Hepsi bu.
+Type a movie title, a topic or a genre; see the results, press **İndir** (Download). That's it.
 
-*Simple desktop torrent search and download app for Windows, macOS and Linux: search movies, TV series, music and books, see IMDb ratings and posters, download with qBittorrent in the background and stream while downloading. Electron, Turkish interface.*
+Torrent Bul is a simple desktop torrent search and download app for Windows, macOS and Linux. Downloads are handled in the background by [qBittorrent](https://www.qbittorrent.org), one of the most reliable engines for connecting and finding peers. Torrent Bul starts it with its own separate profile and configures it itself; it doesn't touch your own qBittorrent settings or list. The interface is in Turkish.
 
-Torrent Bul; Windows, macOS ve Linux’ta çalışan sade bir masaüstü uygulamasıdır. İndirmeleri arka planda [qBittorrent](https://www.qbittorrent.org) yapar: bağlantı ve eş bulma konusunda en sağlam motorlardan biridir. Torrent Bul onu kendi ayrı profiliyle başlatır ve ayarlarını kendisi yapar; senin qBittorrent ayarlarına ve listene dokunmaz.
+![Home screen and the Kütüphanen (Your Library) strip: progress bar and Watched mark](docs/ana-ekran.png)
 
-![Ana ekran ve Kütüphanen şeridi: ilerleme çubuğu ve İzlendi işareti](docs/ana-ekran.png)
+*This screenshot was taken without internet access, so a film icon is shown where a poster couldn't load. Normally movies and series show their IMDb poster, and Internet Archive results show the Archive cover.*
 
-*Ekran görüntüsü internetsiz bir ortamda alındı; afiş yüklenemeyince yerine film simgesi çıkar. Normalde film ve dizilerde IMDb afişi, Internet Archive sonuçlarında Archive kapağı görünür.*
+## What it does
 
-## Neler yapar?
+- **One search box:** type a title or topic and pick a category from the menu next to it (Film, Dizi / Series, Müzik / Music, Kitap / Books, Yazılım / Software, +18). The **Türlere göz at** (Browse genres) cards on the home page explore a genre in one click.
+- **Sorting and filtering:** results are sorted from newest year to oldest by default. You can also sort by oldest, highest rated, most popular, genre or size, and show only one genre with the **Tür** (Genre) menu. Your choice is remembered.
+- **Ratings and posters:** movies and series show their IMDb rating, genre and poster without any key (via Cinemeta). The info service is given at most 2.5 seconds; info that arrives late is ready on the next search. If you enter a free [OMDb](https://www.omdbapi.com/apikey.aspx) key in Settings, the info comes from there and vote counts are shown too. Internet Archive results show Archive's own rating and cover.
+- **+18 section:** adult content is hidden from normal searches and only appears in the **+18** section of the category menu, after an age confirmation.
+- **Turkish content first:** with the **Türkçe önce** (Turkish first) switch in the toolbar, results that look Turkish (language info, "Türkçe altyazılı", "TR dublaj", titles with Turkish characters) move to the top of the list. A lone "TR" tag doesn't count as Turkish. Results in other languages are still listed below; 1080p/4K releases move up and camera recordings (CAM/TS) move down.
+- **License badge:** Internet Archive results with license information show a **CC** or **Kamu malı** (Public domain) badge.
+- **One-click download:** progress, speed, time remaining and number of connections update live. Pause, resume, show in folder.
+- **File selection:** in a multi-file torrent (season pack, releases with sample/extra files) you choose which files to download before it starts. The largest video and its matching (otherwise Turkish) subtitle come pre-selected; single-file torrents download without asking. The selection is saved, and unselected files are never downloaded.
+- **Queue and speed limit:** at most 3 downloads run at once (1–10 in Settings); the rest wait as **Sırada** (Queued) and start when one finishes. Download and upload speed can be limited in KB/s (0 = unlimited).
+- **Resume:** downloads left unfinished continue after you close and reopen the app. Settings and the download list are written crash-safe.
+- **Completed tab:** finished downloads move to a separate tab, with a notification when they finish. Even if you move or delete finished files, the app won't download them again; you can do it on purpose with **Tekrar indir** (Download again) in the results.
+- **.torrent files on your computer:** with **Torrent ekle** (Add torrent) in the Downloads panel, pick as many `.torrent` files as you like or a whole folder (or drag and drop them onto the window). They're all listed with their sizes; tick the ones you want and download them in one click.
+- **Keep seeding (ratio):** on private trackers such as TurkSeed, turn on **Biten indirmeleri paylaşmaya devam et** (Keep seeding finished downloads) in Settings so your ratio doesn't drop. If you move the files, seeding stops, and still nothing is downloaded again.
+- **Your library:** every finished video stays in the **Kütüphanen** (Your Library) strip on the home page with its poster, year and progress bar. Clicking it resumes where you left off; you can mark it as **İzlendi** (Watched). The library entry stays even if you remove the download from the list; if you moved the file it says "file not found".
+- **.exe protection:** if a torrent downloaded as a movie contains executable files (.exe, .msi, .bat, .scr, .apk, etc.), those files are not downloaded and the card says "program file skipped". If the torrent contains only a program instead of the movie, the download doesn't start at all. Programs are only downloaded from results picked under the **Yazılım** (Software) category.
+- **Built-in player:** watch videos in one click, even while they're still downloading. Subtitles inside the torrent (`.srt`, Turkish ones first) load before the download finishes; with **Altyazı yükle** (Load subtitle) you can also add a `.srt`/`.vtt` file from your computer. Playback speed (0.75×–2×) is remembered. For formats the browser can't play (MKV, AVI, HEVC/x265) the card explains why and suggests **Harici oynatıcıda aç** (Open in external player).
+- **Magnet links:** paste a `magnet:` link into the search box to download it directly. The installed desktop app also opens magnet links from your browser.
+- **Run in the tray (optional):** if you turn it on in Settings, downloads continue after you close the window; open or quit from the tray icon. By default, closing the window quits the app.
+- **Light and dark theme:** follows the system setting.
 
-- **Tek kutudan arama:** film adı ya da konu yaz, yanındaki menüden kategori seç (Film, Dizi, Müzik, Kitap, Yazılım, +18). Ana sayfadaki **Türlere göz at** kartlarıyla tek tıkla türe göre keşfet.
-- **Sıralama ve süzme:** sonuçlar varsayılan olarak en yeni yıldan eskiye sıralanır. En eski, en yüksek puan, en popüler, türe göre ya da boyuta göre de sıralayabilir, **Tür** menüsüyle yalnızca istediğin türü gösterebilirsin. Seçimin hatırlanır.
-- **Puanlar ve afişler:** Film ve dizilerde IMDb puanı, tür ve afiş anahtar gerekmeden (Cinemeta üzerinden) gösterilir. Bilgi servisi en çok 2,5 saniye beklenir; geç gelen bilgi bir sonraki aramada hazırdır. Ayarlar’a ücretsiz bir [OMDb](https://www.omdbapi.com/apikey.aspx) anahtarı girersen bilgiler oradan alınır ve oy sayısı da görünür. Internet Archive sonuçlarında Archive’ın kendi puanı ve kapağı gösterilir.
-- **+18 bölümü:** yetişkin içerik normal aramalarda gizlenir, yalnızca kategori menüsündeki **+18** bölümünde ve yaş onayından sonra görünür.
-- **Türkçe içerik önce:** (araç çubuğundaki **Türkçe önce** anahtarıyla) Türkçe olduğu anlaşılan sonuçlar (dil bilgisi, “Türkçe altyazılı”, “TR dublaj”, Türkçe karakterli başlıklar) listenin en üstüne çıkar. Tek başına “TR” etiketi Türkçe sayılmaz. Diğer dillerdeki sonuçlar da altında listelenir; 1080p/4K sürümler öne, kamera kayıtları (CAM/TS) arkaya düşer.
-- **Lisans rozeti:** Internet Archive sonuçlarında lisans bilgisi varsa **CC** ya da **Kamu malı** rozeti görünür.
-- **Tek tıkla indirme:** ilerleme, hız, kalan süre ve bağlantı sayısı canlı görünür. Duraklat, devam et, klasörde göster.
-- **Dosya seçimi:** çok dosyalı bir torrentte (sezon paketi, örnek/ekstra dosyalı yayınlar) indirmeden önce hangi dosyaların ineceğini seçersin. En büyük video ve ona uyan (yoksa Türkçe) altyazı hazır işaretli gelir; tek dosyalı torrentler sormadan iner. Seçim kaydedilir, seçilmeyenler hiç inmez.
-- **Kuyruk ve hız sınırı:** aynı anda en fazla 3 indirme çalışır (Ayarlar’dan 1–10), fazlası **Sırada** bekler ve biri bitince başlar. İndirme ve yükleme hızını KB/sn olarak sınırlayabilirsin (0 = sınırsız).
-- **Kaldığı yerden devam:** uygulamayı kapatıp açınca yarım kalan indirmeler sürer. Ayarlar ve indirme listesi çökmeye karşı güvenli yazılır.
-- **Tamamlanan sekmesi:** biten indirmeler ayrı bir sekmeye taşınır. Bitince bildirim gelir. Biten dosyaları başka bir yere taşısan ya da silsen bile uygulama onları yeniden indirmez; istersen sonuçtaki **Tekrar indir** ile bilerek indirebilirsin.
-- **Bilgisayardaki .torrent dosyaları:** İndirmeler panelindeki **Torrent ekle** ile istediğin kadar `.torrent` dosyasını ya da bütün bir klasörü seç (veya pencereye sürükleyip bırak). Hepsi boyutlarıyla listelenir; istediklerini işaretleyip tek tıkla indir.
-- **Paylaşmaya devam (oran):** TurkSeed gibi üyelikli sitelerde oranın düşmesin diye Ayarlar’dan **Biten indirmeleri paylaşmaya devam et**’i aç. Dosyaları taşırsan paylaşım durur, yine hiçbir şey yeniden inmez.
-- **Kütüphanen:** biten her video ana sayfadaki **Kütüphanen** şeridinde afişi, yılı ve ilerleme çubuğuyla durur. Tıklayınca kaldığın yerden açılır; **İzlendi** olarak işaretleyebilirsin. İndirmeyi listeden kaldırsan da kütüphane kaydı durur; dosyayı taşıdıysan “dosya bulunamadı” yazar.
-- **.exe koruması:** film diye inen torrentte çalıştırılabilir dosya (.exe, .msi, .bat, .scr, .apk vb.) varsa bu dosyalar indirilmez ve kartta “program dosyası atlandı” yazar. Torrentte filmin yerine yalnızca program varsa indirme hiç başlamaz. Programlar yalnızca aramada **Yazılım** kategorisinden seçilen sonuçlarda iner.
-- **Dahili oynatıcı:** videoları tek tıkla izle; indirme sürerken bile izlemeye başlayabilirsin. Torrent içindeki altyazı (`.srt`, Türkçe olanlar öncelikli) indirme bitmeden de yüklenir; **Altyazı yükle** ile bilgisayarındaki bir `.srt`/`.vtt` dosyasını da ekleyebilirsin. Oynatma hızı (0,75×–2×) hatırlanır. Tarayıcının açamadığı biçimler (MKV, AVI, HEVC/x265) için kartta nedeni yazar ve **Harici oynatıcıda aç** önerilir.
-- **Magnet bağlantısı:** arama kutusuna bir `magnet:` bağlantısı yapıştırırsan doğrudan indirir. Kurulu masaüstü uygulaması tarayıcıdaki magnet bağlantılarını da açar.
-- **Tepside çalışma (isteğe bağlı):** Ayarlar’dan açarsan pencereyi kapatınca indirmeler sürer; tepsideki simgeden açıp çıkabilirsin. Varsayılan olarak kapatmak uygulamayı kapatır.
-- **Açık ve koyu tema:** sistem ayarını takip eder.
+## Screenshots
 
-## Ekran görüntüleri
+**Search results:** Turkish results first, with license badges (CC, Public domain) and genre.
 
-**Arama sonuçları:** Türkçe olanlar önde, lisans rozetleri (CC, Kamu malı) ve tür bilgisiyle.
+![Search results](docs/sonuclar.png)
 
-![Sonuçlar](docs/sonuclar.png)
+**File selection:** in a multi-file torrent the largest video and its matching subtitle come pre-selected; sample files are left unticked.
 
-**Dosya seçimi:** çok dosyalı torrentte en büyük video ve ona uyan altyazı hazır işaretli gelir; örnek (sample) dosyalar işaretlenmez.
+![File selection](docs/dosya-secimi.png)
 
-![Dosya seçimi](docs/dosya-secimi.png)
+**Downloads:** extra downloads wait as **Sırada** (Queued); a torrent waiting for file selection shows a **Dosya seç** (Choose files) button.
 
-**İndirmeler:** fazla indirmeler **Sırada** bekler; dosya seçimi bekleyen torrentte **Dosya seç** düğmesi çıkar.
+![Downloads](docs/indirmeler.png)
 
-![İndirmeler](docs/indirmeler.png)
+**Player:** resume, playback speed and **Altyazı yükle** (Load subtitle).
 
-**Oynatıcı:** kaldığın yerden devam, oynatma hızı ve **Altyazı yükle**.
+![Player](docs/oynatici.png)
 
-![Oynatıcı](docs/oynatici.png)
+## Search sources
 
-## Arama kaynakları
+Sources work like plugins and are turned on and off in the **Ayarlar** (Settings) window.
 
-Kaynaklar eklenti mantığıyla çalışır ve **Ayarlar** penceresinden açılıp kapatılır.
-
-| Kaynak | Varsayılan | Açıklama |
+| Source | Default | Description |
 | --- | --- | --- |
-| Internet Archive | Açık | Kamu malı ve özgür lisanslı film, müzik, kitap ve yazılımlar. Dosyalar doğrudan Archive sunucularından da beslendiği için hızlı iner. |
-| Torznab (Jackett / Prowlarr) | Kapalı | Kendi kurduğun indeksleyiciyi eklemek için. Adresi ve API anahtarını Ayarlar’a gir; paylaşan (seeder) sayısı da gösterilir. |
+| Internet Archive | On | Public domain and freely licensed movies, music, books and software. Downloads are fast because the files are also served directly from Archive's servers. |
+| Torznab (Jackett / Prowlarr) | Off | For adding your own indexer. Enter its address and API key in Settings; the number of seeders is shown too. |
 
-Uygulama hiçbir torrent sitesini kendiliğinden kullanmaz.
+The app doesn't use any torrent site on its own.
 
-### Jackett ile başka siteleri eklemek (Linux)
+### Adding other sites with Jackett (Linux)
 
 ```bash
 cd ~ && wget https://github.com/Jackett/Jackett/releases/latest/download/Jackett.Binaries.LinuxAMDx64.tar.gz
 tar -xzf Jackett.Binaries.LinuxAMDx64.tar.gz && cd Jackett && sudo ./install_service_systemd.sh
 ```
 
-1. Tarayıcıda `http://127.0.0.1:9117` adresini aç ve **+ Add indexer** ile istediğin siteleri ekle.
-2. Sağ üstteki **API Key**’i kopyala.
-3. Torrent Bul’da **Ayarlar → + Kendi indeksleyicini ekle**’ye bas; adres hazır gelir, anahtarı yapıştırıp kaydet.
+1. Open `http://127.0.0.1:9117` in a browser and add the sites you want with **+ Add indexer**.
+2. Copy the **API Key** at the top right.
+3. In Torrent Bul, press **Ayarlar → + Kendi indeksleyicini ekle** (Settings → + Add your own indexer); the address is filled in, paste the key and save.
 
-Üyeliğin olan siteler (ör. TurkSeed) de Jackett’ın listesinde: **+ Add indexer**’da adını arat, kullanıcı adı ve şifreni gir.
+Private sites you're a member of (e.g. TurkSeed) are in Jackett's list too: search for the name in **+ Add indexer** and enter your username and password.
 
-Cloudflare korumalı bazı siteler Jackett’ta ayrıca [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) ister. Yeni bir kaynak eklemek için `src/providers/` altına `search(params)` fonksiyonu olan bir modül yazıp `src/search.js` içinde listeye eklemen yeterli.
+Some Cloudflare-protected sites also need [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) in Jackett. To add a new source, write a module with a `search(params)` function under `src/providers/` and add it to the list in `src/search.js`.
 
-> **Not:** Yalnızca indirme hakkına sahip olduğun içerikleri indir. Telif hakkıyla korunan içeriğin izinsiz indirilmesi ve paylaşılması birçok ülkede yasaktır; sorumluluk kullanıcıya aittir.
+> **Note:** Only download content you have the right to download. Downloading and sharing copyrighted content without permission is illegal in many countries; the responsibility lies with the user.
 
-## Kurulum
+## Installation
 
-Gerekenler: [Node.js](https://nodejs.org) 20 veya üstü ve qBittorrent.
+Requirements: [Node.js](https://nodejs.org) 20 or later and qBittorrent.
 
 ```bash
-sudo apt install qbittorrent-nox   # Linux: pencere açmadan çalışan sürüm (önerilen)
+sudo apt install qbittorrent-nox   # Linux: the version that runs without a window (recommended)
 npm install
-npm start          # masaüstü penceresiyle açar
+npm start          # opens with the desktop window
 ```
 
-Linux’ta uygulama menüsüne simgesiyle eklemek için bir kez şunu çalıştır:
+On Linux, run this once to add the app to the application menu with its icon:
 
 ```bash
-npm run kisayol    # "Torrent Bul" menüde ve görev çubuğunda kendi simgesiyle görünür
+npm run kisayol    # "Torrent Bul" appears in the menu and taskbar with its own icon
 ```
 
-Dock’ta simge bulanık görünüyorsa komutu yeniden çalıştır: vektör simgeyi ve her boyutu kurar.
+If the icon looks blurry in the dock, run the command again: it installs the vector icon and every size.
 
-![Torrent Bul simgesi farklı boyutlarda](docs/simge.png)
+![The Torrent Bul icon in different sizes](docs/simge.png)
 
-Windows ve macOS’ta [qbittorrent.org](https://www.qbittorrent.org/download)’dan normal sürümü kurman yeterli; Torrent Bul onu tepsiye küçültülmüş açar. Linux’ta `qbittorrent-nox` yoksa masaüstü `qbittorrent` da kullanılır. Başka bir yerde kuruluysa yolunu `QBITTORRENT_BIN` ortam değişkeniyle verebilirsin.
+On Windows and macOS, installing the regular version from [qbittorrent.org](https://www.qbittorrent.org/download) is enough; Torrent Bul starts it minimised to the tray. On Linux, if `qbittorrent-nox` isn't there, the desktop `qbittorrent` is used too. If it's installed somewhere else, you can give its path with the `QBITTORRENT_BIN` environment variable.
 
-Tarayıcıda çalıştırmak istersen:
+To run it in the browser:
 
 ```bash
-npm run web        # http://127.0.0.1:4517 adresini açar
+npm run web        # opens http://127.0.0.1:4517
 ```
 
-### Kurulum dosyası üretmek
+### Building installers
 
 ```bash
-npm run dist:win     # Windows .exe kurulum dosyası
-npm run dist:mac     # macOS .dmg (Mac üzerinde)
+npm run dist:win     # Windows .exe installer
+npm run dist:mac     # macOS .dmg (on a Mac)
 npm run dist:linux   # Linux AppImage
 ```
 
-Çıktılar `dist/` klasörüne yazılır. İndirilen dosyalar varsayılan olarak `İndirilenler/Torrent` klasörüne kaydedilir; bunu Ayarlar’dan değiştirebilirsin.
+The output goes to the `dist/` folder. Downloads are saved to `İndirilenler/Torrent` (Downloads/Torrent) by default; you can change this in Settings.
 
-## Geliştirme
+## Development
 
 ```bash
 npm test
 ```
 
-Testler; Türkçe tespitini ve sıralamayı, Internet Archive ve Torznab sorgularını, durum dosyalarının güvenli yazılmasını, dosya seçimini, kütüphane ve izleme kaydını, kuyruğu ve gerçek bir qBittorrent ile (yerel web kaynağı ya da ikinci bir qBittorrent eşinden) uçtan uca indirmeyi kontrol eder. Testler için `qbittorrent-nox` kurulu olmalı. Her push ve pull request’te GitHub Actions ile çalışır.
+The tests check Turkish detection and ranking, Internet Archive and Torznab queries, crash-safe writing of the state files, file selection, the library and watch history, the queue, and an end-to-end download with a real qBittorrent (from a local web source or a second qBittorrent peer). The tests need `qbittorrent-nox` installed. They run with GitHub Actions on every push and pull request.
 
-Yapı:
+Structure:
 
 ```
-electron/main.js        Masaüstü penceresi
-bin/web.js              Tarayıcı modu
-src/server.js           Yerel API (yalnızca 127.0.0.1, oturum anahtarıyla korunur)
-src/downloads.js        İndirme yöneticisi (dosya seçimi, kuyruk)
-src/qbittorrent.js      İndirme motoru: qBittorrent'i başlatır, Web API ile yönetir
-src/library.js          Kütüphane ve izleme kaydı
-src/jsonfile.js         Durum dosyaları için güvenli JSON yazma
-src/search.js           Kaynakları birleştirir
-src/ranking.js          Türkçe tespiti ve sıralama
-src/providers/          Internet Archive ve Torznab kaynakları
-public/                 Arayüz (HTML, CSS, JS)
+electron/main.js        Desktop window
+bin/web.js              Browser mode
+src/server.js           Local API (127.0.0.1 only, protected with a session key)
+src/downloads.js        Download manager (file selection, queue)
+src/qbittorrent.js      Download engine: starts qBittorrent and drives it through the Web API
+src/library.js          Library and watch history
+src/jsonfile.js         Safe JSON writing for state files
+src/search.js           Combines the sources
+src/ranking.js          Turkish detection and ranking
+src/providers/          Internet Archive and Torznab sources
+public/                 Interface (HTML, CSS, JS)
 ```
 
-## Lisans
+## License
 
 [MIT](LICENSE)
