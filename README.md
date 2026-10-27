@@ -2,6 +2,8 @@
 
 Bir film adı, konu ya da tür yaz; sonuçları gör, **İndir**’e bas. Hepsi bu.
 
+*Simple desktop torrent search and download app for Windows, macOS and Linux: search movies, TV series, music and books, see IMDb ratings and posters, download with qBittorrent in the background and stream while downloading. Electron, Turkish interface.*
+
 Torrent Bul; Windows, macOS ve Linux’ta çalışan sade bir masaüstü uygulamasıdır. İndirmeleri arka planda [qBittorrent](https://www.qbittorrent.org) yapar: bağlantı ve eş bulma konusunda en sağlam motorlardan biridir. Torrent Bul onu kendi ayrı profiliyle başlatır ve ayarlarını kendisi yapar; senin qBittorrent ayarlarına ve listene dokunmaz.
 
 ![Ana ekran ve Kütüphanen şeridi: ilerleme çubuğu ve İzlendi işareti](docs/ana-ekran.png)
